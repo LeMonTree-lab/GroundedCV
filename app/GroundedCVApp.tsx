@@ -1,25 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-
-type FactStatus = "pending" | "confirmed" | "uncertain" | "rejected";
-
-type Fact = {
-  id: string;
-  text: string;
-  type: string;
-  status: FactStatus;
-  source: string;
-};
-
-type Experience = {
-  id: string;
-  title: string;
-  meta: string;
-  category: string;
-  facts: Fact[];
-  forbidden: string[];
-};
+import { useEffect, useMemo, useState } from "react";
+import StartScreen from "./StartScreen";
+import {
+  PROJECT_STORAGE_KEY,
+  createSampleProject,
+  type Experience,
+  type FactStatus,
+  type GroundedProject,
+  type JobTarget,
+} from "./product-model";
 
 const STEPS = [
   ["01", "经历事实库", "确认 AI 能使用的事实"],
@@ -29,48 +19,6 @@ const STEPS = [
   ["05", "面试追问", "验证每条 Claim 能否自证"],
   ["06", "反向修改", "弱化或删除不可信内容"],
   ["07", "最终报告", "导出可信投递版本"],
-];
-
-const INITIAL_EXPERIENCES: Experience[] = [
-  {
-    id: "EXP-02",
-    title: "城市规划设计机构 · 工作经历",
-    meta: "规划设计师｜3 年｜某城市规划设计研究机构",
-    category: "工作经历",
-    facts: [
-      { id: "F102", text: "通过政府部门、行业专家和居民访谈开展需求调研", type: "方法", status: "pending", source: "原简历 · 工作经历第 1 条" },
-      { id: "F103", text: "累计整理 500+ 条需求", type: "数字", status: "pending", source: "原简历 · 工作经历第 1 条" },
-      { id: "F104", text: "形成需求池并进行优先级划分", type: "行动", status: "confirmed", source: "原简历 · 工作经历第 1 条" },
-      { id: "F108", text: "协调政府、专家和业务单位开展需求评审", type: "协作", status: "confirmed", source: "原简历 · 工作经历第 3 条" },
-    ],
-    forbidden: ["不得将规划方案通过审批表述为软件功能上线", "不得将参与多个项目概括为独立主导全部项目"],
-  },
-  {
-    id: "EXP-03",
-    title: "AI 未来办公场景 · 概念项目",
-    meta: "产品设计成员｜概念验证｜数字艺术设计赛事金奖",
-    category: "项目经历",
-    facts: [
-      { id: "F202", text: "梳理社交平台 1000+ 条公开评价数据", type: "数字 / 行动", status: "uncertain", source: "原简历 · 项目经历第 1 条" },
-      { id: "F203", text: "提炼情绪支持、灵感激发等需求", type: "结果", status: "confirmed", source: "原简历 · 项目经历第 1 条" },
-      { id: "F205", text: "设计灵感仓、逻辑仓和共生仓等功能模块", type: "产品设计", status: "confirmed", source: "原简历 · 项目经历第 2 条" },
-      { id: "F206", text: "使用 Gemini、ChatGPT 等工具完成概念验证与视觉设计", type: "工具", status: "pending", source: "原简历 · 项目经历第 3 条" },
-    ],
-    forbidden: ["不得表述为已上线 AI 产品", "不得推断拥有真实活跃用户或生产级 Agent"],
-  },
-  {
-    id: "EXP-04",
-    title: "Citywalk 步行友好街道 · 用户研究",
-    meta: "专题项目｜公开内容分析｜产品模式设计",
-    category: "项目经历",
-    facts: [
-      { id: "F302", text: "收集并分析抖音、小红书等平台公开内容", type: "方法", status: "confirmed", source: "原简历 · 项目经历第 1 条" },
-      { id: "F303", text: "提炼 800+ 热门 POI 并形成热力图", type: "数字 / 结果", status: "pending", source: "原简历 · 项目经历第 1 条" },
-      { id: "F305", text: "建立用户画像并梳理用户旅程", type: "产品方法", status: "confirmed", source: "原简历 · 项目经历第 2 条" },
-      { id: "F307", text: "设计 3 类 Citywalk 产品模式", type: "方案", status: "pending", source: "原简历 · 项目经历第 3 条" },
-    ],
-    forbidden: ["不得将 POI 数量称为用户样本量", "不得虚构上线后的用户体验提升"],
-  },
 ];
 
 const statusLabel: Record<FactStatus, string> = {
@@ -114,25 +62,96 @@ const RISKS = [
 ];
 
 export default function GroundedCVApp() {
+  const [project, setProject] = useState<GroundedProject>(() => createSampleProject());
+  const [savedProject, setSavedProject] = useState<GroundedProject | null>(null);
+  const [screen, setScreen] = useState<"start" | "workspace">("start");
+  const [hydrated, setHydrated] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
-  const [experiences, setExperiences] = useState(INITIAL_EXPERIENCES);
   const [selectedExperience, setSelectedExperience] = useState("EXP-02");
   const [notice, setNotice] = useState("");
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PROJECT_STORAGE_KEY);
+      if (raw) setSavedProject(JSON.parse(raw) as GroundedProject);
+    } catch {
+      window.localStorage.removeItem(PROJECT_STORAGE_KEY);
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || screen !== "workspace") return;
+    window.localStorage.setItem(
+      PROJECT_STORAGE_KEY,
+      JSON.stringify({ ...project, updatedAt: new Date().toISOString() }),
+    );
+    setSavedProject(project);
+  }, [hydrated, project, screen]);
+
+  const experiences = project.experiences;
   const facts = useMemo(() => experiences.flatMap((item) => item.facts), [experiences]);
   const confirmed = facts.filter((fact) => fact.status === "confirmed").length;
   const pending = facts.filter((fact) => fact.status === "pending").length;
-  const currentExperience = experiences.find((item) => item.id === selectedExperience) ?? experiences[0];
+  const currentExperience = (experiences.find((item) => item.id === selectedExperience) ?? experiences[0])!;
+
+  function startProject(nextProject: GroundedProject) {
+    setProject(nextProject);
+    setSelectedExperience(nextProject.experiences[0]?.id ?? "");
+    setActiveStep(0);
+    setScreen("workspace");
+  }
 
   function updateFact(factId: string, status: FactStatus) {
-    setExperiences((items) =>
-      items.map((experience) => ({
+    setProject((current) => ({
+      ...current,
+      experiences: current.experiences.map((experience) => ({
         ...experience,
         facts: experience.facts.map((fact) => (fact.id === factId ? { ...fact, status } : fact)),
       })),
-    );
+    }));
     setNotice(status === "confirmed" ? `${factId} 已加入可信事实库` : `${factId} 已标记为${statusLabel[status]}`);
     window.setTimeout(() => setNotice(""), 2200);
+  }
+
+  function upsertExperience(experience: Experience) {
+    setProject((current) => {
+      const exists = current.experiences.some((item) => item.id === experience.id);
+      return {
+        ...current,
+        experiences: exists
+          ? current.experiences.map((item) => item.id === experience.id ? experience : item)
+          : [...current.experiences, experience],
+      };
+    });
+    setSelectedExperience(experience.id);
+    setNotice("经历卡已保存");
+    window.setTimeout(() => setNotice(""), 1800);
+  }
+
+  function deleteExperience(experienceId: string) {
+    const next = experiences.find((item) => item.id !== experienceId);
+    setProject((current) => ({
+      ...current,
+      experiences: current.experiences.filter((item) => item.id !== experienceId),
+    }));
+    setSelectedExperience(next?.id ?? "");
+    setNotice("经历卡已删除");
+    window.setTimeout(() => setNotice(""), 1800);
+  }
+
+  function resetProject() {
+    if (!window.confirm("返回首页并清空当前浏览器中的项目数据？此操作无法撤销。")) return;
+    window.localStorage.removeItem(PROJECT_STORAGE_KEY);
+    setSavedProject(null);
+    setProject(createSampleProject());
+    setScreen("start");
+    setActiveStep(0);
+  }
+
+  if (screen === "start") {
+    return <StartScreen savedProject={savedProject} onStart={startProject} />;
   }
 
   return (
@@ -146,11 +165,14 @@ export default function GroundedCVApp() {
           </div>
         </div>
 
-        <div className="case-label">当前案例</div>
+        <div className="case-label">当前项目</div>
         <button className="case-card" type="button">
-          <span className="case-icon">得</span>
-          <span><strong>得物 · AI 产品实习</strong><small>匿名示例 · 林舟</small></span>
-          <span>⌄</span>
+          <span className="case-icon">{project.job.company?.slice(0, 1) || "简"}</span>
+          <span>
+            <strong>{project.job.title || "尚未填写目标岗位"}</strong>
+            <small>{project.mode === "example" ? "匿名示例" : project.sourceName} · {project.candidateName}</small>
+          </span>
+          <span>•</span>
         </button>
 
         <nav className="step-nav" aria-label="产品流程">
@@ -170,14 +192,18 @@ export default function GroundedCVApp() {
 
         <div className="privacy-note">
           <span>◉</span>
-          <p><strong>仅保存在当前浏览器</strong><br />首版不会上传个人数据</p>
+          <p><strong>项目保存在当前浏览器</strong><br />原文件不会进入简历数据库</p>
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <div className="breadcrumb">求职项目 <span>/</span> 得物 AI 产品实习 <span>/</span> {STEPS[activeStep][1]}</div>
-          <div className="top-actions"><button type="button" className="ghost-button">重新开始</button><button type="button" className="avatar">林</button></div>
+          <div className="breadcrumb">求职项目 <span>/</span> {project.job.title || "待填写岗位"} <span>/</span> {STEPS[activeStep][1]}</div>
+          <div className="top-actions">
+            <button type="button" className="ghost-button" onClick={() => setScreen("start")}>返回首页</button>
+            <button type="button" className="ghost-button danger-text" onClick={resetProject}>清空项目</button>
+            <button type="button" className="avatar" aria-label="当前候选人">{project.candidateName.slice(0, 1)}</button>
+          </div>
         </header>
 
         {activeStep === 0 ? (
@@ -190,10 +216,17 @@ export default function GroundedCVApp() {
             pending={pending}
             total={facts.length}
             updateFact={updateFact}
+            upsertExperience={upsertExperience}
+            deleteExperience={deleteExperience}
             onNext={() => setActiveStep(1)}
           />
         ) : activeStep === 1 ? (
-          <JobAnalysis onNext={() => setActiveStep(2)} />
+          <JobAnalysis
+            job={project.job}
+            experiences={project.experiences}
+            updateJob={(job) => setProject((current) => ({ ...current, job }))}
+            onNext={() => setActiveStep(2)}
+          />
         ) : activeStep === 2 ? (
           <ResumeStudio onNext={() => setActiveStep(3)} />
         ) : activeStep === 3 ? (
@@ -213,10 +246,84 @@ export default function GroundedCVApp() {
   );
 }
 
-function JobAnalysis({ onNext }: { onNext: () => void }) {
-  const covered = REQUIREMENTS.filter((item) => item.level === "covered").length;
-  const partial = REQUIREMENTS.filter((item) => item.level === "partial").length;
-  const missing = REQUIREMENTS.filter((item) => item.level === "missing").length;
+function deriveRequirements(job: JobTarget, experiences: Experience[]) {
+  if (!job.description.trim()) return [];
+  const allFacts = experiences.flatMap((experience) => experience.facts);
+  const requirementTexts = job.description
+    .split(/[\n；;。]/)
+    .flatMap((part) => part.length > 45 ? part.split(/[，,]/) : [part])
+    .map((part) => part.replace(/^\s*\d+[.、）)]?\s*/, "").trim())
+    .filter((part) => part.length >= 5)
+    .filter((part, index, items) => items.indexOf(part) === index)
+    .slice(0, 12);
+
+  const keywords = [
+    "需求调研", "竞品分析", "产品方案", "业务流程", "AI提效", "需求文档",
+    "产品开发", "协调研发", "推动上线", "用户反馈", "使用数据", "迭代优化",
+    "趋势分析", "LLM", "Prompt", "Agent", "Skill", "Codex", "Claude", "Vibe Coding",
+  ];
+
+  return requirementTexts.map((text, index) => {
+    const terms = keywords.filter((keyword) => text.toLowerCase().includes(keyword.toLowerCase()));
+    const fallbackTerms = text
+      .replace(/[、，,：:（）()]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length >= 3)
+      .slice(0, 4);
+    const matchTerms = terms.length ? terms : fallbackTerms;
+    const matchedFacts = allFacts.filter(
+      (fact) =>
+        fact.status !== "rejected" &&
+        matchTerms.some((term) => fact.text.toLowerCase().includes(term.toLowerCase())),
+    );
+    const confirmedMatches = matchedFacts.filter((fact) => fact.status === "confirmed");
+    const level =
+      confirmedMatches.length >= 1
+        ? "covered"
+        : matchedFacts.length >= 1
+          ? "partial"
+          : "missing";
+    return {
+      id: `JD${String(index + 1).padStart(2, "0")}`,
+      text,
+      type: index < 6 ? "核心任务" : "能力要求",
+      level,
+      facts: matchedFacts.length ? matchedFacts.slice(0, 3).map((fact) => fact.id).join(" · ") : "暂无事实",
+      reason:
+        level === "covered"
+          ? "已找到确认事实，后续将建立逐句来源"
+          : level === "partial"
+            ? "存在相关事实，但尚未完成用户确认"
+            : "当前事实库没有直接证据，不会强行写入简历",
+    };
+  });
+}
+
+function JobAnalysis({
+  job,
+  experiences,
+  updateJob,
+  onNext,
+}: {
+  job: JobTarget;
+  experiences: Experience[];
+  updateJob: (job: JobTarget) => void;
+  onNext: () => void;
+}) {
+  const requirements = useMemo(() => deriveRequirements(job, experiences), [job, experiences]);
+  const covered = requirements.filter((item) => item.level === "covered").length;
+  const partial = requirements.filter((item) => item.level === "partial").length;
+  const missing = requirements.filter((item) => item.level === "missing").length;
+  const canContinue = Boolean(job.company.trim() && job.title.trim() && job.description.trim());
+
+  function continueToResume() {
+    if (!canContinue) {
+      window.alert("请先填写公司、岗位名称和岗位 JD。");
+      return;
+    }
+    onNext();
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -225,12 +332,25 @@ function JobAnalysis({ onNext }: { onNext: () => void }) {
           <h1>岗位需要什么，你的事实能证明什么</h1>
           <p>不提供虚假的“87 分匹配度”。每项要求都会显示覆盖状态、支持事实和判断理由。</p>
         </div>
-        <button className="primary-button" type="button" onClick={onNext}>生成岗位化简历 <span>→</span></button>
+        <button className="primary-button" type="button" onClick={continueToResume}>生成岗位化简历 <span>→</span></button>
       </div>
 
+      <section className="job-entry-card">
+        <div className="job-entry-heading">
+          <div><span className="card-category">目标岗位</span><h2>粘贴你准备申请的岗位信息</h2></div>
+          <span className={canContinue ? "input-state ready" : "input-state"}>{canContinue ? "信息已填写" : "等待填写"}</span>
+        </div>
+        <div className="job-fields">
+          <label>公司名称<input value={job.company} onChange={(event) => updateJob({ ...job, company: event.target.value })} placeholder="例如：上海得物信息集团有限公司" /></label>
+          <label>岗位名称<input value={job.title} onChange={(event) => updateJob({ ...job, title: event.target.value })} placeholder="例如：AI 产品经理实习生" /></label>
+          <label className="job-description">岗位 JD<textarea value={job.description} onChange={(event) => updateJob({ ...job, description: event.target.value })} placeholder="粘贴岗位职责和任职要求。系统会拆解岗位任务，并与已经确认的事实进行匹配。" /></label>
+        </div>
+      </section>
+
+      {requirements.length > 0 ? <>
       <div className="job-summary">
-        <div className="job-company"><span className="company-mark">得</span><div><span>上海得物信息集团有限公司</span><h2>内部 AI 工具产品实习生</h2><p>需求研究 · AI 提效场景 · 产品方案 · 开发跟进 · 迭代优化</p></div></div>
-        <div className="coverage-donut" style={{ "--coverage": `${((covered + partial * 0.5) / REQUIREMENTS.length) * 100}%` } as React.CSSProperties}>
+        <div className="job-company"><span className="company-mark">{job.company.slice(0, 1)}</span><div><span>{job.company}</span><h2>{job.title}</h2><p>{requirements.slice(0, 5).map((item) => item.text.slice(0, 10)).join(" · ")}</p></div></div>
+        <div className="coverage-donut" style={{ "--coverage": `${((covered + partial * 0.5) / requirements.length) * 100}%` } as React.CSSProperties}>
           <div><strong>{covered + partial}</strong><span>项有事实响应</span></div>
         </div>
       </div>
@@ -239,12 +359,12 @@ function JobAnalysis({ onNext }: { onNext: () => void }) {
         <span><i className="dot covered" />{covered} 项已覆盖</span>
         <span><i className="dot partial" />{partial} 项部分覆盖</span>
         <span><i className="dot missing" />{missing} 项未覆盖</span>
-        <span><i className="dot unknown" />1 项信息不足</span>
+        <span><i className="dot unknown" />规则初筛，AI 精析将在下一批接入</span>
       </div>
 
       <div className="requirements-table">
         <div className="requirements-head"><span>岗位要求</span><span>覆盖状态</span><span>对应事实</span><span>判断依据</span></div>
-        {REQUIREMENTS.map((item) => (
+        {requirements.map((item) => (
           <article className="requirement-row" key={item.id}>
             <div><code>{item.id}</code><strong>{item.text}</strong><small>{item.type}</small></div>
             <span className={`coverage ${item.level}`}>{coverageLabel[item.level]}</span>
@@ -254,7 +374,8 @@ function JobAnalysis({ onNext }: { onNext: () => void }) {
         ))}
       </div>
 
-      <div className="missing-callout"><span>!</span><div><strong>未覆盖不等于必须“补齐”</strong><p>竞品分析、软件上线和 AI 编程 Demo 暂无事实支持，因此不会被强行写进简历。GroundedCV 完成后，才可作为新的独立项目事实。</p></div></div>
+      <div className="missing-callout"><span>!</span><div><strong>未覆盖不等于必须“补齐”</strong><p>当前事实库没有支持材料的要求不会被强行写入简历。你可以返回事实库补充真实经历，但系统不会替你编造。</p></div></div>
+      </> : <div className="job-empty-state"><span>JD</span><h2>岗位要求将在这里拆解</h2><p>填写上方三项内容后，系统会显示每条要求对应的事实、覆盖状态和判断理由。</p></div>}
     </div>
   );
 }
@@ -445,6 +566,8 @@ function FactLibrary({
   pending,
   total,
   updateFact,
+  upsertExperience,
+  deleteExperience,
   onNext,
 }: {
   experiences: Experience[];
@@ -455,9 +578,23 @@ function FactLibrary({
   pending: number;
   total: number;
   updateFact: (factId: string, status: FactStatus) => void;
+  upsertExperience: (experience: Experience) => void;
+  deleteExperience: (experienceId: string) => void;
   onNext: () => void;
 }) {
-  const progress = Math.round((confirmed / total) * 100);
+  const [editing, setEditing] = useState<Experience | "new" | null>(null);
+  const progress = total ? Math.round((confirmed / total) * 100) : 0;
+
+  function requestDelete() {
+    if (experiences.length <= 1) {
+      window.alert("至少需要保留一张经历卡。你可以编辑当前经历，而不是删除。");
+      return;
+    }
+    if (window.confirm(`确定删除“${currentExperience.title}”吗？`)) {
+      deleteExperience(currentExperience.id);
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -482,7 +619,7 @@ function FactLibrary({
 
       <div className="content-grid">
         <aside className="experience-list">
-          <div className="section-title"><span>经历卡</span><button type="button" aria-label="添加经历">＋</button></div>
+          <div className="section-title"><span>经历卡</span><button type="button" aria-label="添加经历" onClick={() => setEditing("new")}>＋</button></div>
           {experiences.map((experience) => {
             const complete = experience.facts.filter((fact) => fact.status === "confirmed").length;
             return (
@@ -505,7 +642,10 @@ function FactLibrary({
         <div className="fact-panel">
           <div className="fact-panel-head">
             <div><span className="card-category">{currentExperience.id}</span><h2>{currentExperience.title}</h2><p>{currentExperience.meta}</p></div>
-            <button type="button" className="ghost-button">编辑经历</button>
+            <div className="fact-panel-actions">
+              <button type="button" className="ghost-button" onClick={() => setEditing(currentExperience)}>编辑经历</button>
+              <button type="button" className="ghost-button danger-text" onClick={requestDelete}>删除</button>
+            </div>
           </div>
 
           <div className="fact-help"><strong>为什么要逐条确认？</strong><span>数字、责任、工具和结果需要分别确认，避免 AI 把模糊描述当成确定事实。</span></div>
@@ -537,6 +677,84 @@ function FactLibrary({
           </div>
         </div>
       </div>
+      {editing && (
+        <ExperienceEditor
+          experience={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSave={(experience) => {
+            upsertExperience(experience);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExperienceEditor({
+  experience,
+  onClose,
+  onSave,
+}: {
+  experience: Experience | null;
+  onClose: () => void;
+  onSave: (experience: Experience) => void;
+}) {
+  const [category, setCategory] = useState(experience?.category ?? "项目经历");
+  const [title, setTitle] = useState(experience?.title ?? "");
+  const [meta, setMeta] = useState(experience?.meta ?? "");
+  const [factsText, setFactsText] = useState(experience?.facts.map((fact) => fact.text).join("\n") ?? "");
+  const [forbiddenText, setForbiddenText] = useState(experience?.forbidden.join("\n") ?? "不得新增没有事实支持的数字、技能、职责和结果");
+  const [error, setError] = useState("");
+
+  function save() {
+    const factLines = factsText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!title.trim() || !factLines.length) {
+      setError("请填写经历名称，并至少添加一条真实事实。");
+      return;
+    }
+    const experienceId = experience?.id ?? `EXP-${Date.now()}`;
+    onSave({
+      id: experienceId,
+      category: category.trim() || "项目经历",
+      title: title.trim(),
+      meta: meta.trim() || "用户手动添加",
+      facts: factLines.map((text, index) => {
+        const previous = experience?.facts[index];
+        return {
+          id: previous?.id ?? `F${Date.now().toString().slice(-5)}${index + 1}`,
+          text,
+          type: previous?.type ?? "用户确认事实",
+          status: previous?.text === text ? previous.status : "pending",
+          source: previous?.text === text ? previous.source : `用户手动填写 · 第 ${index + 1} 条`,
+        };
+      }),
+      forbidden: forbiddenText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    });
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.currentTarget === event.target) onClose();
+    }}>
+      <section className="experience-modal" role="dialog" aria-modal="true" aria-labelledby="experience-editor-title">
+        <div className="modal-heading">
+          <div><span className="card-category">{experience ? "编辑经历卡" : "添加经历卡"}</span><h2 id="experience-editor-title">{experience ? experience.title : "添加一段真实经历"}</h2></div>
+          <button type="button" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="modal-grid">
+          <label>经历类型<select value={category} onChange={(event) => setCategory(event.target.value)}><option>工作经历</option><option>实习经历</option><option>项目经历</option><option>校园经历</option><option>教育经历</option><option>其他经历</option></select></label>
+          <label>经历名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：GroundedCV 可信简历实验室" /></label>
+          <label className="full-field">角色、时间或机构<input value={meta} onChange={(event) => setMeta(event.target.value)} placeholder="例如：独立产品项目｜2026.07—至今" /></label>
+          <label className="full-field">真实事实（每行一条）<textarea value={factsText} onChange={(event) => setFactsText(event.target.value)} placeholder={"调研公开招聘平台中的 AI 产品岗位需求\n使用 Codex 辅助完成可在线体验的 Web Demo\n项目尚未进行正式商业化上线"} /></label>
+          <label className="full-field">禁止推断（每行一条）<textarea className="short-textarea" value={forbiddenText} onChange={(event) => setForbiddenText(event.target.value)} placeholder="例如：不得把可演示原型写成正式上线产品" /></label>
+        </div>
+        {error && <p className="modal-error" role="alert">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" className="ghost-button" onClick={onClose}>取消</button>
+          <button type="button" className="primary-button" onClick={save}>保存经历卡</button>
+        </div>
+      </section>
     </div>
   );
 }

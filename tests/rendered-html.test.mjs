@@ -21,9 +21,10 @@ test("server-renders the GroundedCV product shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>GroundedCV｜可信简历实验室<\/title>/i);
-  assert.match(html, /先确认事实，再让 AI 写简历/);
-  assert.match(html, /得物 · AI 产品实习/);
-  assert.match(html, /经历事实库/);
+  assert.match(html, /把每一句简历/);
+  assert.match(html, /上传 PDF \/ DOCX/);
+  assert.match(html, /粘贴简历文字/);
+  assert.match(html, /先看匿名示例/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
 
@@ -36,4 +37,16 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /F102/);
   assert.match(app, /navigator\.clipboard/);
   assert.match(app, /window\.print/);
+  assert.match(app, /upsertExperience/);
+  assert.match(app, /PROJECT_STORAGE_KEY/);
+});
+
+test("supports real resume entry points", async () => {
+  const start = await readFile(new URL("../app/StartScreen.tsx", import.meta.url), "utf8");
+  const parser = await readFile(new URL("../app/file-parser.ts", import.meta.url), "utf8");
+  assert.match(start, /parseResumeFile/);
+  assert.match(start, /createPersonalProject/);
+  assert.match(parser, /pdfjs-dist/);
+  assert.match(parser, /mammoth/);
+  assert.match(parser, /扫描件/);
 });
