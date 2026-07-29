@@ -172,6 +172,7 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .primary-button { flex: 0 0 auto; padding: 12px 16px; background: var(--green); border: 0; border-radius: 9px; color: white; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 6px 18px rgba(8,125,91,.18); }
 .primary-button:hover { background: var(--green-dark); }
 .primary-button span { margin-left: 12px; }
+.primary-button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 
 .metric-strip { display: grid; grid-template-columns: repeat(4, minmax(95px, .7fr)) minmax(240px, 1.6fr); background: white; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 8px 22px rgba(25,41,34,.04); }
 .metric-strip > div { min-height: 82px; display: flex; flex-direction: column; justify-content: center; padding: 16px 22px; border-right: 1px solid var(--line); color: var(--muted); font-size: 11px; }
@@ -305,7 +306,10 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .missing-callout strong { font-size: 12px; }
 .missing-callout p { margin: 4px 0 0; font-size: 10px; line-height: 1.55; }
 
+.resume-heading-actions { display: flex; gap: 8px; align-items: center; }
 .resume-workspace { display: grid; grid-template-columns: minmax(580px, 1fr) 310px; gap: 20px; align-items: start; }
+.resume-empty { min-height: 360px; display: grid; place-content: center; padding: 48px; background: white; border: 1px dashed #bdcac3; border-radius: 13px; text-align: center; }
+.resume-empty > span { color: #b8d3c7; font: 600 48px Georgia, serif; }.resume-empty h2 { margin: 10px 0 7px; font: 600 23px Georgia, "Songti SC", serif; }.resume-empty p { max-width: 540px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .resume-paper { min-height: 850px; padding: 42px 52px; background: white; border: 1px solid #d8ddda; box-shadow: 0 14px 40px rgba(28,43,36,.08); }
 .resume-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 2px solid var(--ink); }
 .resume-header h2 { margin: 0; font: 600 32px Georgia, "Songti SC", serif; }
@@ -465,6 +469,8 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
   .page { padding: 28px 16px 45px; }
   .page-heading { display: block; }
   .primary-button { width: 100%; margin-top: 20px; }
+  .resume-heading-actions { display: grid; margin-top: 18px; }
+  .resume-heading-actions .primary-button { margin-top: 0; }
   .metric-strip { grid-template-columns: repeat(2, 1fr); }
   .metric-strip > div:nth-child(2) { border-right: 0; }
   .content-grid { grid-template-columns: 1fr; }

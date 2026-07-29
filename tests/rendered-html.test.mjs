@@ -30,6 +30,7 @@ test("server-renders the GroundedCV product shell", async () => {
 
 test("keeps the seven-stage product flow in the client app", async () => {
   const app = await readFile(new URL("../app/GroundedCVApp.tsx", import.meta.url), "utf8");
+  const model = await readFile(new URL("../app/product-model.ts", import.meta.url), "utf8");
   for (const label of ["经历事实库", "目标岗位", "岗位化简历", "Claim 风险", "面试追问", "反向修改", "最终报告"]) {
     assert.match(app, new RegExp(label));
   }
@@ -39,6 +40,11 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /window\.print/);
   assert.match(app, /upsertExperience/);
   assert.match(app, /PROJECT_STORAGE_KEY/);
+  assert.match(app, /生成基于事实的简历/);
+  assert.match(app, /generateGroundedResume/);
+  assert.match(model, /export function generateGroundedResume/);
+  assert.match(model, /fact\.status === "confirmed"/);
+  assert.match(model, /includedExperienceCount/);
 });
 
 test("supports real resume entry points", async () => {

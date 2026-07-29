@@ -23,6 +23,27 @@ export type JobTarget = {
   description: string;
 };
 
+export type ResumeClaim = {
+  id: string;
+  experienceId: string;
+  experienceTitle: string;
+  experienceMeta: string;
+  section: "工作经历" | "项目经历" | "其他经历";
+  text: string;
+  facts: string[];
+  jd: string[];
+  risk: "low" | "medium";
+};
+
+export type GeneratedResume = {
+  generatedAt: string;
+  candidateName: string;
+  targetTitle: string;
+  claims: ResumeClaim[];
+  confirmedFactCount: number;
+  includedExperienceCount: number;
+};
+
 export type GroundedProject = {
   id: string;
   mode: "example" | "personal";
@@ -31,6 +52,7 @@ export type GroundedProject = {
   candidateName: string;
   experiences: Experience[];
   job: JobTarget;
+  resume?: GeneratedResume;
   updatedAt: string;
 };
 
@@ -215,4 +237,68 @@ export function createEmptyProject(): GroundedProject {
     "请在经历卡中添加你的第一段经历",
     "手动创建",
   );
+}
+
+const MATCH_TERMS = [
+  "需求", "调研", "用户", "产品", "方案", "原型", "流程", "数据", "分析",
+  "AI", "LLM", "Prompt", "Agent", "Skill", "Codex", "Figma", "SQL", "Python",
+  "协作", "协调", "评审", "迭代", "测试", "上线", "竞品", "运营",
+];
+
+function resumeSection(category: string): ResumeClaim["section"] {
+  if (/工作|实习/.test(category)) return "工作经历";
+  if (/项目|实践|校园/.test(category)) return "项目经历";
+  return "其他经历";
+}
+
+function matchingJdIds(text: string, job: JobTarget) {
+  const requirements = job.description
+    .split(/[\n；;。]/)
+    .flatMap((item) => item.length > 45 ? item.split(/[，,]/) : [item])
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 5)
+    .slice(0, 12);
+  const terms = MATCH_TERMS.filter((term) => text.toLowerCase().includes(term.toLowerCase()));
+  return requirements
+    .map((requirement, index) => ({ requirement, id: `JD${String(index + 1).padStart(2, "0")}` }))
+    .filter(({ requirement }) => terms.some((term) => requirement.toLowerCase().includes(term.toLowerCase())))
+    .map(({ id }) => id)
+    .slice(0, 3);
+}
+
+export function generateGroundedResume(project: GroundedProject): GeneratedResume {
+  const confirmedExperiences = project.experiences
+    .map((experience) => ({
+      experience,
+      facts: experience.facts.filter((fact) => fact.status === "confirmed"),
+    }))
+    .filter((item) => item.facts.length > 0)
+    .sort((left, right) => {
+      const score = (item: typeof left) =>
+        item.facts.reduce((total, fact) => total + matchingJdIds(fact.text, project.job).length, 0);
+      return score(right) - score(left);
+    });
+
+  const claims: ResumeClaim[] = confirmedExperiences.flatMap(({ experience, facts }, experienceIndex) =>
+    facts.slice(0, 4).map((fact, factIndex) => ({
+      id: `C${String(experienceIndex + 1).padStart(2, "0")}${factIndex + 1}`,
+      experienceId: experience.id,
+      experienceTitle: experience.title,
+      experienceMeta: experience.meta,
+      section: resumeSection(experience.category),
+      text: fact.text,
+      facts: [fact.id],
+      jd: matchingJdIds(fact.text, project.job),
+      risk: /\d|%|提升|推动|主导|上线/.test(fact.text) ? "medium" : "low",
+    })),
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    candidateName: project.candidateName,
+    targetTitle: project.job.title || "目标岗位待填写",
+    claims,
+    confirmedFactCount: confirmedExperiences.reduce((total, item) => total + item.facts.length, 0),
+    includedExperienceCount: confirmedExperiences.length,
+  };
 }

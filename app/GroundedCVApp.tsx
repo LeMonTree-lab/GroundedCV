@@ -5,10 +5,12 @@ import StartScreen from "./StartScreen";
 import {
   PROJECT_STORAGE_KEY,
   createSampleProject,
+  generateGroundedResume,
   type Experience,
   type FactStatus,
   type GroundedProject,
   type JobTarget,
+  type ResumeClaim,
 } from "./product-model";
 
 const STEPS = [
@@ -106,6 +108,7 @@ export default function GroundedCVApp() {
   function updateFact(factId: string, status: FactStatus) {
     setProject((current) => ({
       ...current,
+      resume: undefined,
       experiences: current.experiences.map((experience) => ({
         ...experience,
         facts: experience.facts.map((fact) => (fact.id === factId ? { ...fact, status } : fact)),
@@ -120,6 +123,7 @@ export default function GroundedCVApp() {
       const exists = current.experiences.some((item) => item.id === experience.id);
       return {
         ...current,
+        resume: undefined,
         experiences: exists
           ? current.experiences.map((item) => item.id === experience.id ? experience : item)
           : [...current.experiences, experience],
@@ -134,6 +138,7 @@ export default function GroundedCVApp() {
     const next = experiences.find((item) => item.id !== experienceId);
     setProject((current) => ({
       ...current,
+      resume: undefined,
       experiences: current.experiences.filter((item) => item.id !== experienceId),
     }));
     setSelectedExperience(next?.id ?? "");
@@ -224,11 +229,20 @@ export default function GroundedCVApp() {
           <JobAnalysis
             job={project.job}
             experiences={project.experiences}
-            updateJob={(job) => setProject((current) => ({ ...current, job }))}
+            updateJob={(job) => setProject((current) => ({ ...current, job, resume: undefined }))}
             onNext={() => setActiveStep(2)}
           />
         ) : activeStep === 2 ? (
-          <ResumeStudio onNext={() => setActiveStep(3)} />
+          <ResumeStudio
+            project={project}
+            onGenerate={() => {
+              const nextResume = generateGroundedResume(project);
+              setProject((current) => ({ ...current, resume: nextResume }));
+              setNotice(nextResume.claims.length ? "已根据最新确认事实生成简历" : "请先确认至少一条事实，再生成简历");
+              window.setTimeout(() => setNotice(""), 2400);
+            }}
+            onNext={() => setActiveStep(3)}
+          />
         ) : activeStep === 3 ? (
           <RiskCenter onNext={() => setActiveStep(4)} />
         ) : activeStep === 4 ? (
@@ -380,51 +394,65 @@ function JobAnalysis({
   );
 }
 
-function ResumeStudio({ onNext }: { onNext: () => void }) {
-  const [selectedClaim, setSelectedClaim] = useState("C03");
-  const activeClaim = RESUME_CLAIMS.find((claim) => claim.id === selectedClaim) ?? RESUME_CLAIMS[0];
+function ResumeStudio({
+  project,
+  onGenerate,
+  onNext,
+}: {
+  project: GroundedProject;
+  onGenerate: () => void;
+  onNext: () => void;
+}) {
+  const [selectedClaim, setSelectedClaim] = useState<string | null>(null);
+  const resume = project.resume;
+  const activeClaim = resume?.claims.find((claim) => claim.id === selectedClaim) ?? resume?.claims[0];
+  const sourceFacts = project.experiences.flatMap((experience) => experience.facts);
+  const sections: ResumeClaim["section"][] = ["工作经历", "项目经历", "其他经历"];
+  const canInspect = Boolean(resume?.claims.length);
+
   return (
     <div className="page resume-page">
       <div className="page-heading">
-        <div><span className="eyebrow">STEP 03 · GROUNDED WRITING</span><h1>整份简历，每句话都有来处</h1><p>经历已根据得物 JD 重新排序和表达，但事实边界保持不变。点击任意 Claim 查看依据。</p></div>
-        <button className="primary-button" type="button" onClick={onNext}>开始 Claim 检测 <span>→</span></button>
+        <div><span className="eyebrow">STEP 03 · GROUNDED WRITING</span><h1>整份简历，每句话都有来处</h1><p>只使用已确认事实。新增、编辑或更改事实状态后，必须重新生成，旧版本不会被悄悄沿用。</p></div>
+        <div className="resume-heading-actions">
+          <button className="ghost-button" type="button" onClick={onGenerate}>{resume ? "按最新事实重新生成" : "生成基于事实的简历"}</button>
+          <button className="primary-button" type="button" onClick={onNext} disabled={!canInspect}>开始 Claim 检测 <span>→</span></button>
+        </div>
       </div>
-      <div className="resume-workspace">
+      {!resume ? <div className="resume-empty"><span>03</span><h2>尚未生成岗位化简历</h2><p>请先确认事实卡中的真实内容，再点击“生成基于事实的简历”。手动添加的经历默认视为你已确认；从原简历导入的内容需要逐条确认。</p></div> : resume.claims.length === 0 ? <div className="resume-empty"><span>!</span><h2>还没有可写入简历的确认事实</h2><p>返回事实库，至少确认一条你真实做过的行动、工具、结果或数字，再重新生成。</p></div> : <div className="resume-workspace">
         <div className="resume-paper">
-          <header className="resume-header"><div><h2>林舟</h2><p>AI 产品经理实习生</p></div><span>某 C9 高校 · 硕士在读<br />上海 · 可连续实习 3 个月以上</span></header>
-          <section><h3>个人概述</h3><p>具备 3 年跨角色需求研究与方案推进经验，关注 LLM 与 Agent 产品方向，能够将复杂场景转化为结构化需求、产品方案和可验证原型。</p></section>
-          <section>
-            <h3>工作经历</h3>
-            <div className="resume-entry"><div><strong>某城市规划设计研究机构</strong><time>2021.07—2024.06</time></div><small>规划设计师</small>
-              {RESUME_CLAIMS.filter((claim) => claim.section === "工作经历").map((claim) => <ClaimLine key={claim.id} claim={claim} active={selectedClaim === claim.id} onClick={() => setSelectedClaim(claim.id)} />)}
-            </div>
-          </section>
-          <section>
-            <h3>项目经历</h3>
-            <div className="resume-entry"><div><strong>AI 未来办公场景概念项目</strong><time>2025.09—2025.12</time></div><small>产品设计成员</small>
-              {RESUME_CLAIMS.filter((claim) => claim.section === "项目经历").map((claim) => <ClaimLine key={claim.id} claim={claim} active={selectedClaim === claim.id} onClick={() => setSelectedClaim(claim.id)} />)}
-            </div>
-          </section>
-          <section><h3>教育与技能</h3><p>城乡规划硕士在读｜Python、SQL 基础｜ChatGPT、Gemini、Figma/墨刀｜研究方向涉及 LLM、Agent 与城市仿真</p></section>
+          <header className="resume-header"><div><h2>{resume.candidateName}</h2><p>{resume.targetTitle}</p></div><span>{project.job.company || "目标公司待填写"}<br />已确认 {resume.confirmedFactCount} 条事实 · 纳入 {resume.includedExperienceCount} 段经历</span></header>
+          <section><h3>可信表达说明</h3><p>以下经历根据目标岗位相关性排序；每条均对应事实库中的确认事实，未确认、拒绝或无依据内容不会写入。</p></section>
+          {sections.map((section) => {
+            const sectionClaims = resume.claims.filter((claim) => claim.section === section);
+            if (!sectionClaims.length) return null;
+            const experienceIds = [...new Set(sectionClaims.map((claim) => claim.experienceId))];
+            return <section key={section}><h3>{section}</h3>{experienceIds.map((experienceId) => {
+              const claims = sectionClaims.filter((claim) => claim.experienceId === experienceId);
+              const entry = claims[0];
+              return <div className="resume-entry" key={experienceId}><div><strong>{entry.experienceTitle}</strong><time>{entry.experienceMeta}</time></div><small>{section}</small>{claims.map((claim) => <ClaimLine key={claim.id} claim={claim} active={activeClaim?.id === claim.id} onClick={() => setSelectedClaim(claim.id)} />)}</div>;
+            })}</section>;
+          })}
         </div>
         <aside className="claim-source">
-          <span className={`risk-flag ${activeClaim.risk}`}>{activeClaim.risk === "low" ? "低风险" : "需要核查"}</span>
-          <code>{activeClaim.id}</code>
-          <h2>这句话为什么能写？</h2>
-          <blockquote>{activeClaim.text}</blockquote>
-          <h3>事实来源</h3>
-          <div className="source-tags">{activeClaim.facts.map((fact) => <span key={fact}>{fact}</span>)}</div>
-          <h3>响应的 JD 要求</h3>
-          <div className="source-tags jd-tags">{activeClaim.jd.map((jd) => <span key={jd}>{jd}</span>)}</div>
-          <div className="source-explain"><strong>表达边界</strong><p>{activeClaim.risk === "medium" ? "包含数字或结果，需要在下一步核查证据与因果关系。" : "责任强度与事实卡一致，未新增工具、数字或项目状态。"}</p></div>
-          <button type="button" className="ghost-button wide">编辑这条表述</button>
+          {activeClaim && <><span className={`risk-flag ${activeClaim.risk}`}>{activeClaim.risk === "low" ? "低风险" : "需要核查"}</span>
+            <code>{activeClaim.id}</code>
+            <h2>这句话为什么能写？</h2>
+            <blockquote>{activeClaim.text}</blockquote>
+            <h3>事实来源</h3>
+            <div className="source-tags">{activeClaim.facts.map((factId) => <span key={factId}>{factId}</span>)}</div>
+            <div className="source-explain"><strong>原始事实</strong><p>{sourceFacts.filter((fact) => activeClaim.facts.includes(fact.id)).map((fact) => fact.text).join("；")}</p></div>
+            <h3>响应的 JD 要求</h3>
+            <div className="source-tags jd-tags">{activeClaim.jd.length ? activeClaim.jd.map((jd) => <span key={jd}>{jd}</span>) : <span>暂无直接关键词匹配</span>}</div>
+            <div className="source-explain"><strong>表达边界</strong><p>{activeClaim.risk === "medium" ? "含有数字、结果、上线或责任强度词，下一步会优先检查证据和因果关系。" : "当前表述没有引入原事实之外的新数字、工具或项目状态。"}</p></div>
+          </>}
         </aside>
-      </div>
+      </div>}
     </div>
   );
 }
 
-function ClaimLine({ claim, active, onClick }: { claim: (typeof RESUME_CLAIMS)[number]; active: boolean; onClick: () => void }) {
+function ClaimLine({ claim, active, onClick }: { claim: ResumeClaim; active: boolean; onClick: () => void }) {
   return <button type="button" className={active ? "claim-line active" : "claim-line"} onClick={onClick}><i className={`claim-dot ${claim.risk}`} /><span>{claim.text}</span><b>{claim.id}</b></button>;
 }
 
@@ -725,7 +753,7 @@ function ExperienceEditor({
           id: previous?.id ?? `F${Date.now().toString().slice(-5)}${index + 1}`,
           text,
           type: previous?.type ?? "用户确认事实",
-          status: previous?.text === text ? previous.status : "pending",
+          status: previous ? (previous.text === text ? previous.status : "pending") : "confirmed",
           source: previous?.text === text ? previous.source : `用户手动填写 · 第 ${index + 1} 条`,
         };
       }),
