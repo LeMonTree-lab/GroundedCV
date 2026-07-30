@@ -64,6 +64,24 @@ const RISKS = [
   { id: "R03", claim: "C04", severity: "low", type: "工具边界", phrase: "使用 Gemini、ChatGPT 完成概念验证", reason: "工具使用事实尚未再次确认，但未推断模型训练或生产级 Agent 能力。", suggestion: "使用多种生成式 AI 工具辅助概念验证与视觉设计。" },
 ];
 
+type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium" | "low"; type: string; phrase: string; reason: string; suggestion: string };
+
+function inspectResume(project: GroundedProject): LiveRisk[] {
+  const claims = project.resume?.claims ?? [];
+  const facts = project.experiences.flatMap((experience) => experience.facts);
+  return claims.map((claim, index) => {
+    const sources = facts.filter((fact) => claim.facts.includes(fact.id));
+    const sourceText = sources.map((fact) => fact.text).join("；");
+    const risky = claim.text.match(/主导|推动|提升|增长|上线|独立负责|显著/g)?.[0];
+    const numbers = claim.text.match(/\d+(?:[+.%万千])?/g) ?? [];
+    const newNumber = numbers.find((number) => !sourceText.includes(number));
+    if (newNumber) return { id: `R${index + 1}`, claim, severity: "high", type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: sourceText };
+    if (risky && !sourceText.includes(risky)) return { id: `R${index + 1}`, claim, severity: "high", type: "表达强度升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任或结果强度。`, suggestion: sourceText };
+    if (/\d|%|万|千|百/.test(sourceText)) return { id: `R${index + 1}`, claim, severity: "medium", type: "数字 / 结果待核实", phrase: sourceText.match(/\d+(?:[+.%万千])?/)?.[0] ?? "结果", reason: "该表述引用了已确认的数字或结果；投递前仍建议核对统计口径和个人贡献边界。", suggestion: claim.text };
+    return { id: `R${index + 1}`, claim, severity: "low", type: "来源完整", phrase: "确认事实", reason: "当前句子已绑定确认事实，未发现规则可识别的新增数字或责任升级。", suggestion: claim.text };
+  });
+}
+
 export default function GroundedCVApp() {
   const [project, setProject] = useState<GroundedProject>(() => createSampleProject());
   const [savedProject, setSavedProject] = useState<GroundedProject | null>(null);
@@ -100,6 +118,7 @@ export default function GroundedCVApp() {
   const confirmed = facts.filter((fact) => fact.status === "confirmed").length;
   const pending = facts.filter((fact) => fact.status === "pending").length;
   const currentExperience = (experiences.find((item) => item.id === selectedExperience) ?? experiences[0])!;
+  const liveRisks = useMemo(() => inspectResume(project), [project]);
 
   function startProject(nextProject: GroundedProject) {
     setProject(nextProject);
@@ -154,6 +173,7 @@ export default function GroundedCVApp() {
     window.localStorage.removeItem(PROJECT_STORAGE_KEY);
     setSavedProject(null);
     setProject(createSampleProject());
+    setAiSettings({ apiKey: "", model: "deepseek-v4-flash" });
     setScreen("start");
     setActiveStep(0);
   }
@@ -257,13 +277,13 @@ export default function GroundedCVApp() {
             onNext={() => setActiveStep(3)}
           />
         ) : activeStep === 3 ? (
-          <RiskCenter onNext={() => setActiveStep(4)} />
+          <RiskCenter risks={liveRisks} onNext={() => setActiveStep(4)} />
         ) : activeStep === 4 ? (
-          <InterviewTest onNext={() => setActiveStep(5)} />
+          <InterviewTest risks={liveRisks} onNext={() => setActiveStep(5)} />
         ) : activeStep === 5 ? (
-          <ReverseEdit onNext={() => setActiveStep(6)} />
+          <ReverseEdit risks={liveRisks} onNext={() => setActiveStep(6)} />
         ) : activeStep === 6 ? (
-          <FinalReport />
+          <FinalReport project={project} risks={liveRisks} />
         ) : (
           <StagePlaceholder activeStep={activeStep} onBack={() => setActiveStep(Math.max(0, activeStep - 1))} />
         )}
@@ -492,9 +512,11 @@ function ClaimLine({ claim, active, onClick }: { claim: ResumeClaim; active: boo
   return <button type="button" className={active ? "claim-line active" : "claim-line"} onClick={onClick}><i className={`claim-dot ${claim.risk}`} /><span>{claim.text}</span><b>{claim.id}</b></button>;
 }
 
-function RiskCenter({ onNext }: { onNext: () => void }) {
-  const [selected, setSelected] = useState("R01");
-  const risk = RISKS.find((item) => item.id === selected) ?? RISKS[0];
+function RiskCenter({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
+  const [selected, setSelected] = useState("");
+  const risk = risks.find((item) => item.id === selected) ?? risks[0];
+  if (!risk) return <EmptyStage title="先生成当前项目的简历" copy="Claim 检测会读取你刚刚生成的简历，而不是展示固定示例。" />;
+  const counts = { high: risks.filter((item) => item.severity === "high").length, medium: risks.filter((item) => item.severity === "medium").length, low: risks.filter((item) => item.severity === "low").length };
   return (
     <div className="page">
       <div className="page-heading">
@@ -502,24 +524,24 @@ function RiskCenter({ onNext }: { onNext: () => void }) {
         <button className="primary-button" type="button" onClick={onNext}>进入面试压力测试 <span>→</span></button>
       </div>
       <div className="risk-summary">
-        <div><span className="risk-number high">1</span><p><strong>高风险</strong>建议追问后处理</p></div>
-        <div><span className="risk-number medium">1</span><p><strong>中风险</strong>需要补充或弱化</p></div>
-        <div><span className="risk-number low">1</span><p><strong>低风险</strong>确认事实即可保留</p></div>
-        <div className="scan-note"><span>✓</span><p><strong>已检查 4 条 Claim</strong>未发现新增技能、项目状态改变或身份错位</p></div>
+        <div><span className="risk-number high">{counts.high}</span><p><strong>高风险</strong>建议追问后处理</p></div>
+        <div><span className="risk-number medium">{counts.medium}</span><p><strong>中风险</strong>需要补充或弱化</p></div>
+        <div><span className="risk-number low">{counts.low}</span><p><strong>低风险</strong>确认事实即可保留</p></div>
+        <div className="scan-note"><span>✓</span><p><strong>已检查 {risks.length} 条当前 Claim</strong>结果来自当前项目的事实来源与表述对照</p></div>
       </div>
       <div className="risk-layout">
         <div className="risk-list">
-          {RISKS.map((item) => (
+          {risks.map((item) => (
             <button type="button" key={item.id} className={selected === item.id ? "risk-card active" : "risk-card"} onClick={() => setSelected(item.id)}>
               <span className={`severity ${item.severity}`}>{item.severity === "high" ? "高" : item.severity === "medium" ? "中" : "低"}</span>
-              <div><span>{item.type} · {item.claim}</span><strong>“{item.phrase}”</strong><small>{item.reason}</small></div><b>→</b>
+              <div><span>{item.type} · {item.claim.id}</span><strong>“{item.phrase}”</strong><small>{item.reason}</small></div><b>→</b>
             </button>
           ))}
         </div>
         <aside className="risk-detail">
           <div className="risk-detail-head"><span className={`severity ${risk.severity}`}>{risk.severity === "high" ? "高风险" : risk.severity === "medium" ? "中风险" : "低风险"}</span><code>{risk.id}</code></div>
           <h2>{risk.type}</h2>
-          <div className="compare-box"><small>当前简历表述</small><p>{RESUME_CLAIMS.find((claim) => claim.id === risk.claim)?.text}</p><mark>{risk.phrase}</mark></div>
+          <div className="compare-box"><small>当前简历表述</small><p>{risk.claim.text}</p><mark>{risk.phrase}</mark></div>
           <h3>检查理由</h3><p className="detail-copy">{risk.reason}</p>
           <h3>系统建议</h3><div className="suggestion-box">{risk.suggestion}</div>
           <div className="decision-buttons"><button type="button">保留原文</button><button type="button">补充事实</button><button type="button" className="recommended">进入追问 →</button></div>
@@ -529,11 +551,13 @@ function RiskCenter({ onNext }: { onNext: () => void }) {
   );
 }
 
-function InterviewTest({ onNext }: { onNext: () => void }) {
+function InterviewTest({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
+  const target = risks.find((item) => item.severity !== "low") ?? risks[0];
+  if (!target) return <EmptyStage title="先生成当前项目的简历" copy="面试追问会围绕当前 Claim 的风险点生成。" />;
   const questions = [
-    { level: "L1", title: "事实确认", question: "这 10+ 轮方案优化中，你本人具体参与了哪些轮次和哪些工作？", hint: "验证参与范围，避免把团队过程全部归因于个人。" },
-    { level: "L2", title: "方法验证", question: "你如何收集评审意见、确定修改优先级，并推动不同角色达成一致？", hint: "验证方法细节是否足以支持“协调”和“推进”。" },
-    { level: "L3", title: "结论挑战", question: "项目通过评审与个人工作的直接关系是什么？如果没有你的工作，结果一定会不同吗？", hint: "挑战因果结论，判断是否需要弱化“推动通过”。" },
+    { level: "L1", title: "事实确认", question: `“${target.phrase}”在这段经历中具体指什么？请说明你亲自完成的行动。`, hint: "验证事实范围，避免把团队过程归因于个人。" },
+    { level: "L2", title: "方法验证", question: `你使用了什么方法或产物来支撑“${target.claim.text}”？`, hint: "验证行动、方法与产出能否形成完整证据链。" },
+    { level: "L3", title: "结论挑战", question: `该结果与个人工作之间有什么直接证据？哪些部分应改为团队或项目结果？`, hint: "挑战过强因果，判断是否需要弱化。" },
   ];
   const [level, setLevel] = useState(0);
   const [answers, setAnswers] = useState(["", "", ""]);
@@ -552,8 +576,8 @@ function InterviewTest({ onNext }: { onNext: () => void }) {
       <div className="interview-layout">
         <aside className="question-rail">
           <span className="card-category">当前压力测试</span>
-          <h2>C02 · 项目评审</h2>
-          <blockquote>“跟进 10+ 轮方案优化并推动项目通过评审。”</blockquote>
+          <h2>{target.claim.id} · {target.type}</h2>
+          <blockquote>“{target.claim.text}”</blockquote>
           <div className="level-rail">
             {questions.map((item, index) => <button type="button" key={item.level} onClick={() => setLevel(index)} className={level === index ? "level active" : index < level || evaluated ? "level done" : "level"}><span>{index < level || evaluated ? "✓" : item.level}</span><div><strong>{item.title}</strong><small>{answers[index] ? "已回答" : "待回答"}</small></div></button>)}
           </div>
@@ -568,10 +592,10 @@ function InterviewTest({ onNext }: { onNext: () => void }) {
             <div className="answer-actions"><button type="button" className="ghost-button" disabled={level === 0} onClick={() => setLevel(level - 1)}>← 上一问</button><button type="button" className="primary-button" onClick={saveAnswer}>{level === 2 ? "完成压力测试" : "保存并继续 →"}</button></div>
           </> : <div className="evaluation">
             <span className="evaluation-score">58</span><small>/ 100 可辩护性</small>
-            <h2>事实和方法可以解释，因果结论不足</h2>
-            <p>你的回答能够支持“参与多轮优化”和“协调评审意见”，但不能证明个人工作直接导致项目通过评审。</p>
-            <div><span>✓ 保留</span><strong>参与 10+ 轮方案优化</strong></div>
-            <div><span>↓ 弱化</span><strong>推动项目通过评审</strong></div>
+            <h2>请用回答决定是否保留当前表述</h2>
+            <p>系统会保留你的回答；若无法说明个人行动、方法和结果边界，下一步建议采用事实来源中的较弱表述。</p>
+            <div><span>✓ 保留</span><strong>{target.claim.text}</strong></div>
+            <div><span>↓ 建议</span><strong>{target.suggestion}</strong></div>
             <button type="button" className="primary-button" onClick={onNext}>应用建议并查看修改 →</button>
           </div>}
         </section>
@@ -580,7 +604,9 @@ function InterviewTest({ onNext }: { onNext: () => void }) {
   );
 }
 
-function ReverseEdit({ onNext }: { onNext: () => void }) {
+function ReverseEdit({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
+  const target = risks.find((item) => item.severity !== "low") ?? risks[0];
+  if (!target) return <EmptyStage title="先生成当前项目的简历" copy="反向修改会使用当前风险检测结果。" />;
   const [choice, setChoice] = useState("weaken");
   return (
     <div className="page">
@@ -589,36 +615,40 @@ function ReverseEdit({ onNext }: { onNext: () => void }) {
         <button className="primary-button" type="button" onClick={onNext}>确认修改并生成报告 <span>→</span></button>
       </div>
       <div className="revision-card">
-        <div className="revision-before"><span>修改前 · 高风险</span><p>协调政府、专家与业务单位开展需求评审，跟进 10+ 轮方案优化并<strong>推动项目通过评审</strong>。</p></div>
+        <div className="revision-before"><span>修改前 · {target.severity === "high" ? "高风险" : "需核实"}</span><p>{target.claim.text}</p></div>
         <div className="revision-arrow">↓</div>
         <div className="revision-options">
-          <button type="button" onClick={() => setChoice("keep")} className={choice === "keep" ? "revision-option active risky" : "revision-option"}><span>方案 A</span><strong>保留原文</strong><p>信息完整，但“推动通过”仍缺少直接因果证据。</p><b>风险未解除</b></button>
-          <button type="button" onClick={() => setChoice("weaken")} className={choice === "weaken" ? "revision-option active recommended" : "revision-option"}><span>方案 B · 推荐</span><strong>弱化因果关系</strong><p>协调多方开展需求评审，参与 10+ 轮方案优化，相关项目最终通过专家评审。</p><b>保留亮点，风险降低</b></button>
-          <button type="button" onClick={() => setChoice("delete")} className={choice === "delete" ? "revision-option active" : "revision-option"}><span>方案 C</span><strong>删除结果</strong><p>协调多方开展需求评审，参与 10+ 轮方案优化。</p><b>最可信，但损失结果信息</b></button>
+          <button type="button" onClick={() => setChoice("keep")} className={choice === "keep" ? "revision-option active risky" : "revision-option"}><span>方案 A</span><strong>保留原文</strong><p>{target.reason}</p><b>风险未解除</b></button>
+          <button type="button" onClick={() => setChoice("weaken")} className={choice === "weaken" ? "revision-option active recommended" : "revision-option"}><span>方案 B · 推荐</span><strong>回到事实边界</strong><p>{target.suggestion}</p><b>保留事实，降低风险</b></button>
+          <button type="button" onClick={() => setChoice("delete")} className={choice === "delete" ? "revision-option active" : "revision-option"}><span>方案 C</span><strong>删除该 Claim</strong><p>不在最终版本中采用此句。</p><b>最保守</b></button>
         </div>
-        <div className="revision-result"><span>当前选择</span><p>{choice === "keep" ? "协调政府、专家与业务单位开展需求评审，跟进 10+ 轮方案优化并推动项目通过评审。" : choice === "delete" ? "协调政府、专家与业务单位开展需求评审，参与 10+ 轮方案优化。" : "协调政府、专家与业务单位开展需求评审，参与 10+ 轮方案优化，相关项目最终通过专家评审。"}</p><div><span>事实来源 F108 · F109 · F110</span><strong>{choice === "keep" ? "仍有 1 项高风险" : "风险已解除"}</strong></div></div>
+        <div className="revision-result"><span>当前选择</span><p>{choice === "keep" ? target.claim.text : choice === "delete" ? "此 Claim 将不写入最终简历。" : target.suggestion}</p><div><span>事实来源 {target.claim.facts.join(" · ")}</span><strong>{choice === "keep" ? "风险未解除" : "风险已降低"}</strong></div></div>
       </div>
     </div>
   );
 }
 
-function FinalReport() {
+function FinalReport({ project, risks }: { project: GroundedProject; risks: LiveRisk[] }) {
   const [copied, setCopied] = useState(false);
   function copySummary() {
-    navigator.clipboard?.writeText("GroundedCV 最终简历：已通过事实与面试压力检查。");
+    navigator.clipboard?.writeText((project.resume?.claims ?? []).map((claim) => `- ${claim.text}`).join("\n"));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
   return (
     <div className="page report-page">
-      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>12 条事实完成核查，4 条核心 Claim 均可追溯；1 条高风险表述已根据面试回答弱化。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制" : "复制 Markdown"}</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
-      <div className="report-metrics"><div><strong>4</strong><span>最终采用 Claim</span></div><div><strong>100%</strong><span>事实可追溯率</span></div><div><strong>0</strong><span>未处理高风险</span></div><div><strong>58→82</strong><span>可辩护性提升</span></div></div>
+      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim；请在投递前处理仍存在的高风险表述。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制" : "复制 Markdown"}</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
+      <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>100%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{risks.filter((risk) => risk.severity === "medium").length}</strong><span>待核实数字/结果</span></div></div>
       <div className="report-grid">
         <section className="report-section"><span className="card-category">修改记录</span><h2>系统做了什么改变</h2><div className="change-row"><span>弱化</span><p><del>推动项目通过评审</del><br /><ins>相关项目最终通过专家评审</ins></p></div><div className="change-row"><span>保留</span><p>参与 10+ 轮方案优化——回答能够支持具体参与范围和方法。</p></div><div className="change-row"><span>未写入</span><p>竞品分析、软件上线、Vibe Coding——当前事实库没有支持材料。</p></div></section>
         <section className="report-section"><span className="card-category">面试准备</span><h2>建议重点准备 3 个问题</h2><ol><li>如何把多方访谈结果整理成需求池并确定优先级？</li><li>AI 未来办公项目为什么选择公开评价，而不是真人访谈？</li><li>你对 Agent、Prompt 和 Skill 的理解分别是什么？</li></ol><div className="final-note"><strong>产品原则</strong><p>匹配岗位不是把未做过的事情写进去，而是从真实经历中找到最相关、最能自证的表达。</p></div></section>
       </div>
     </div>
   );
+}
+
+function EmptyStage({ title, copy }: { title: string; copy: string }) {
+  return <div className="page"><div className="resume-empty"><span>!</span><h2>{title}</h2><p>{copy}</p></div></div>;
 }
 
 function FactLibrary({

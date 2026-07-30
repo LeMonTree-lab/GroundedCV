@@ -44,6 +44,9 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /generateGroundedResume/);
   assert.match(app, /AI 按岗位改写/);
   assert.match(app, /AI 拆解为原子事实/);
+  assert.match(app, /function inspectResume/);
+  assert.match(app, /当前项目的事实来源与表述对照/);
+  assert.match(app, /setAiSettings\(\{ apiKey: "", model: "deepseek-v4-flash" \}\)/);
   assert.match(model, /export function generateGroundedResume/);
   assert.match(model, /fact\.status === "confirmed"/);
   assert.match(model, /includedExperienceCount/);

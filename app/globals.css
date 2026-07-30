@@ -272,6 +272,18 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .api-privacy-note strong { color: var(--green-dark); }.api-privacy-note p { margin: 4px 0 0; }
 .ai-inline-error { margin: 0 0 14px; padding: 11px 13px; background: var(--red-soft); border: 1px solid #e4aaa4; border-radius: 8px; }
 
+/* Readability pass: preserve display headings and metrics, enlarge Chinese working text. */
+.card-category { font-size: 11px; }
+.experience-card strong { font-size: 15px; }.experience-card small, .card-foot { font-size: 12px; }
+.section-title, .fact-panel-head p, .fact-help, .guardrail { font-size: 13px; }
+.fact-table-head { font-size: 11px; }.fact-copy code, .fact-type, .source-cell { font-size: 12px; }
+.fact-copy p { font-size: 15px; line-height: 1.65; }.status, .action { font-size: 11px; }
+.job-fields label, .job-fields input, .job-fields textarea { font-size: 13px; }
+.requirements-head { font-size: 11px; }.requirement-row strong { font-size: 14px; }.requirement-row small, .requirement-row p, .coverage, .fact-links { font-size: 12px; }
+.resume-header > span, .resume-paper section > p, .resume-entry > div, .resume-entry time, .resume-entry > small { font-size: 12px; }
+.claim-line { font-size: 13px; line-height: 1.7; }.claim-line b { font-size: 10px; }
+.source-explain p, .claim-source blockquote { font-size: 12px; }.source-explain strong, .claim-source h3 { font-size: 11px; }
+
 .job-summary { display: flex; justify-content: space-between; align-items: center; padding: 24px 28px; background: #fff; border: 1px solid var(--line); border-radius: 13px 13px 0 0; }
 .job-company { display: flex; align-items: center; gap: 16px; }
 .company-mark { display: grid; place-items: center; width: 52px; height: 52px; background: #e8fff5; border: 1px solid #bde5d3; border-radius: 13px; color: var(--green); font-size: 20px; font-weight: 900; }
