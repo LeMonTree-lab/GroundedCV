@@ -235,6 +235,20 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .shield { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: white; background: var(--amber); font-weight: 900; }
 .guardrail ul { margin: 10px 0 0 28px; padding: 0; line-height: 1.7; }
 
+.asset-library { margin-top: 22px; padding: 24px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.asset-library-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 18px; }
+.asset-library-head h2 { margin: 0; font: 600 24px Georgia, "Songti SC", serif; }
+.asset-library-head p { max-width: 680px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.asset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.asset-card { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; }
+.asset-card-head { display: flex; justify-content: space-between; gap: 12px; padding: 16px; background: #f8faf8; border-bottom: 1px solid var(--line); }
+.asset-card-head h3 { margin: 0; font-size: 16px; }.asset-card-head p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+.text-button { padding: 2px 4px; color: #66736d; background: transparent; border: 0; cursor: pointer; font-size: 11px; }.text-button:hover { color: var(--green); }
+.asset-fact { display: flex; justify-content: space-between; gap: 12px; padding: 13px 15px; border-bottom: 1px solid #eef1ef; }.asset-fact:last-child { border-bottom: 0; }
+.asset-fact code { margin-right: 7px; color: var(--green); font-size: 10px; }.asset-fact p { margin: 7px 0 0; font-size: 12px; line-height: 1.5; }.asset-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
+.asset-empty { padding: 24px; color: var(--muted); background: #fafbf9; border: 1px dashed #c9d2cd; border-radius: 9px; text-align: center; }.asset-empty p { margin: 6px auto 0; max-width: 560px; font-size: 12px; line-height: 1.6; }
+.asset-editor-help { margin: -7px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
 .job-entry-card { margin-bottom: 18px; padding: 22px 24px; background: white; border: 1px solid var(--line); border-radius: 12px; }
 .job-entry-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
 .job-entry-heading h2 { margin: 0; font: 600 20px Georgia, "Songti SC", serif; }
@@ -501,6 +515,7 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
   .fact-panel-actions { flex-direction: column; }
   .fact-help { display: block; }
   .fact-help strong { display: block; margin-bottom: 4px; }
+  .asset-library { padding: 18px; }.asset-library-head { display: block; }.asset-library-head .ghost-button { width: 100%; margin-top: 16px; }.asset-grid { grid-template-columns: 1fr; }.asset-fact { display: block; }.asset-actions { flex-direction: row; flex-wrap: wrap; margin-top: 10px; }
   .job-summary { align-items: flex-start; }
   .job-fields { grid-template-columns: 1fr; }
   .job-fields .job-description { grid-column: 1; }

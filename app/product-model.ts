@@ -17,6 +17,15 @@ export type Experience = {
   forbidden: string[];
 };
 
+export type FactAsset = {
+  id: string;
+  title: string;
+  category: "技能卡" | "教育与研究卡" | "获奖/证书卡" | "作品与链接卡";
+  meta: string;
+  facts: Fact[];
+  forbidden: string[];
+};
+
 export type JobTarget = {
   company: string;
   title: string;
@@ -62,6 +71,7 @@ export type GroundedProject = {
   sourceText: string;
   candidateName: string;
   experiences: Experience[];
+  assets: FactAsset[];
   job: JobTarget;
   jobAnalysis?: SemanticJobRequirement[];
   resume?: GeneratedResume;
@@ -119,6 +129,19 @@ export const SAMPLE_EXPERIENCES: Experience[] = [
   },
 ];
 
+export const SAMPLE_ASSETS: FactAsset[] = [
+  { id: "AST-01", title: "工具与技能", category: "技能卡", meta: "个人确认的工具能力", facts: [
+    { id: "F901", text: "使用 Figma 完成产品原型设计", type: "工具 / 技能", status: "confirmed", source: "个人技能" },
+    { id: "F902", text: "具备 Python、SQL 基础", type: "工具 / 技能", status: "confirmed", source: "个人技能" },
+  ], forbidden: ["不得将基础能力表述为生产级开发能力"] },
+  { id: "AST-02", title: "教育与研究方向", category: "教育与研究卡", meta: "硕士在读", facts: [
+    { id: "F903", text: "研究方向涉及 LLM、Agent 与城市仿真", type: "研究方向", status: "confirmed", source: "教育背景" },
+  ], forbidden: ["不得将研究方向表述为已发表成果或商业项目经验"] },
+  { id: "AST-03", title: "奖项与认可", category: "获奖/证书卡", meta: "项目成果", facts: [
+    { id: "F904", text: "AI 未来办公场景项目获得数字艺术设计赛事金奖", type: "获奖", status: "confirmed", source: "获奖经历" },
+  ], forbidden: ["不得将赛事奖项表述为商业客户认可"] },
+];
+
 export function createSampleProject(): GroundedProject {
   return {
     id: "sample-dewu",
@@ -127,6 +150,7 @@ export function createSampleProject(): GroundedProject {
     sourceText: "GroundedCV 内置匿名示例",
     candidateName: "林舟",
     experiences: structuredClone(SAMPLE_EXPERIENCES),
+    assets: structuredClone(SAMPLE_ASSETS),
     job: { ...DEWU_JOB },
     updatedAt: new Date().toISOString(),
   };
@@ -147,7 +171,13 @@ function inferFactType(text: string) {
 }
 
 const SECTION_PATTERN =
-  /^(教育经历|教育背景|工作经历|实习经历|项目经历|校园经历|实践经历|获奖经历|荣誉奖项|专业技能|技能证书|个人总结|自我评价)[：:]?$/;
+  /^(教育经历|教育背景|研究方向|工作经历|实习经历|项目经历|校园经历|实践经历|获奖经历|荣誉奖项|专业技能|技能证书|作品集|作品链接|个人作品|个人总结|自我评价)[：:]?$/;
+
+const ASSET_CATEGORIES: Record<string, FactAsset["category"]> = {
+  "专业技能": "技能卡", "技能证书": "技能卡", "教育经历": "教育与研究卡", "教育背景": "教育与研究卡",
+  "研究方向": "教育与研究卡", "获奖经历": "获奖/证书卡", "荣誉奖项": "获奖/证书卡",
+  "作品集": "作品与链接卡", "作品链接": "作品与链接卡", "个人作品": "作品与链接卡",
+};
 
 export function experiencesFromResumeText(text: string, sourceName: string): Experience[] {
   const lines = text
@@ -174,7 +204,8 @@ export function experiencesFromResumeText(text: string, sourceName: string): Exp
       ...section,
       lines: section.lines.filter((line) => line.length >= 5),
     }))
-    .filter((section) => section.lines.length);
+    .filter((section) => section.lines.length)
+    .filter((section) => !ASSET_CATEGORIES[section.category]);
 
   if (!usefulSections.length) {
     return [
@@ -222,6 +253,28 @@ export function experiencesFromResumeText(text: string, sourceName: string): Exp
   });
 }
 
+export function assetsFromResumeText(text: string, sourceName: string): FactAsset[] {
+  const lines = text.split(/\r?\n/).map(cleanLine).filter(Boolean);
+  const groups: Array<{ category: string; lines: string[] }> = [];
+  let category = "";
+  for (const line of lines) {
+    const heading = line.match(SECTION_PATTERN)?.[1];
+    if (heading) { category = heading; continue; }
+    if (ASSET_CATEGORIES[category] && line.length >= 3) {
+      const latest = groups.find((group) => group.category === category);
+      if (latest) latest.lines.push(line); else groups.push({ category, lines: [line] });
+    }
+  }
+  return groups.map((group, index) => ({
+    id: `AST-${String(index + 1).padStart(2, "0")}`,
+    title: group.category,
+    category: ASSET_CATEGORIES[group.category],
+    meta: `来自 ${sourceName}`,
+    facts: group.lines.slice(0, 12).map((text, factIndex) => ({ id: `FA${index + 1}${String(factIndex + 1).padStart(2, "0")}`, text, type: inferFactType(text), status: "pending" as FactStatus, source: `${sourceName} · ${group.category}` })),
+    forbidden: ["不得新增原文中不存在的技能等级、证书状态或奖项影响力"],
+  }));
+}
+
 export function createPersonalProject(
   text: string,
   sourceName: string,
@@ -239,6 +292,7 @@ export function createPersonalProject(
     sourceText: text,
     candidateName,
     experiences: experiencesFromResumeText(text, sourceName),
+    assets: assetsFromResumeText(text, sourceName),
     job: { company: "", title: "", description: "" },
     updatedAt: new Date().toISOString(),
   };
@@ -279,7 +333,8 @@ function matchingJdIds(text: string, job: JobTarget) {
 }
 
 export function generateGroundedResume(project: GroundedProject): GeneratedResume {
-  const confirmedExperiences = project.experiences
+  const records = [...project.experiences, ...(project.assets ?? [])];
+  const confirmedExperiences = records
     .map((experience) => ({
       experience,
       facts: experience.facts.filter((fact) => fact.status === "confirmed"),

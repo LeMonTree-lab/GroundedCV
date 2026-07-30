@@ -1,11 +1,11 @@
-import type { Experience, Fact, GroundedProject, ResumeClaim, SemanticJobRequirement } from "./product-model";
+import type { Experience, Fact, FactAsset, GroundedProject, ResumeClaim, SemanticJobRequirement } from "./product-model";
 
 export type AiSettings = {
   apiKey: string;
   model: "deepseek-v4-flash" | "deepseek-v4-pro";
 };
 
-type ChatResponse = { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+type ChatResponse = { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
 
 function requireKey(settings: AiSettings) {
   if (!settings.apiKey.trim()) throw new Error("请先在「AI 设置」中填入 DeepSeek API Key。");
@@ -13,10 +13,12 @@ function requireKey(settings: AiSettings) {
 
 async function requestJson<T>(settings: AiSettings, system: string, user: string): Promise<T> {
   requireKey(settings);
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 60_000);
-  try {
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 60_000);
+    try {
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` },
       signal: controller.signal,
@@ -28,19 +30,23 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
       }),
-    });
-    const data = await response.json() as ChatResponse;
-    if (!response.ok) throw new Error(data.error?.message || `DeepSeek 请求失败（${response.status}）`);
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("DeepSeek 没有返回可解析内容，请重试。");
-    return JSON.parse(content) as T;
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
-    if (error instanceof SyntaxError) throw new Error("模型返回格式异常，请重试。");
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
+      });
+      const data = await response.json() as ChatResponse;
+      if (!response.ok) throw new Error(data.error?.message || `DeepSeek 请求失败（${response.status}）`);
+      const raw = data.choices?.[0]?.message?.content;
+      const content = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((item) => item.text ?? "").join("") : "";
+      if (!content.trim()) throw new Error("DeepSeek 本次返回空内容");
+      return JSON.parse(content) as T;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("AI 请求失败");
+      if (lastError instanceof DOMException && lastError.name === "AbortError") break;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
+  if (lastError instanceof DOMException && lastError.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
+  if (lastError instanceof SyntaxError) throw new Error("模型两次都返回了无法解析的格式，请稍后重试。");
+  throw new Error(lastError?.message === "DeepSeek 本次返回空内容" ? "DeepSeek 连续两次返回空内容，请稍后再试或切换 deepseek-v4-pro。" : lastError?.message ?? "AI 请求失败。");
 }
 
 export async function splitExperienceWithAi(settings: AiSettings, rawText: string): Promise<Array<Pick<Fact, "text" | "type">>> {
@@ -63,7 +69,7 @@ export async function splitExperienceWithAi(settings: AiSettings, rawText: strin
   return facts;
 }
 
-export async function analyzeJobFitWithAi(settings: AiSettings, job: GroundedProject["job"], experiences: Experience[]): Promise<SemanticJobRequirement[]> {
+export async function analyzeJobFitWithAi(settings: AiSettings, job: GroundedProject["job"], experiences: Array<Experience | FactAsset>): Promise<SemanticJobRequirement[]> {
   const facts = experiences.flatMap((experience) => experience.facts.map((fact) => ({
     id: fact.id, text: fact.text, type: fact.type, status: fact.status, experience: experience.title,
   })));
@@ -100,7 +106,7 @@ export async function analyzeJobFitWithAi(settings: AiSettings, job: GroundedPro
 type AiClaim = { experienceId?: string; text?: string; facts?: string[]; risk?: "low" | "medium" };
 
 export async function rewriteResumeWithAi(settings: AiSettings, project: GroundedProject): Promise<ResumeClaim[]> {
-  const confirmed = project.experiences.map((experience) => ({
+  const confirmed = [...project.experiences, ...(project.assets ?? [])].map((experience) => ({
     id: experience.id,
     title: experience.title,
     meta: experience.meta,
@@ -121,7 +127,7 @@ export async function rewriteResumeWithAi(settings: AiSettings, project: Grounde
 输出：{"claims":[{"experienceId":"EXP-01","text":"...","facts":["F101"],"risk":"low"}]}`,
     JSON.stringify({ job: project.job, experiences: confirmed }),
   );
-  const sourceById = new Map(project.experiences.map((experience) => [experience.id, experience]));
+  const sourceById = new Map([...project.experiences, ...(project.assets ?? [])].map((experience) => [experience.id, experience]));
   return (data.claims ?? []).flatMap((item, index) => {
     const experience = sourceById.get(String(item.experienceId ?? ""));
     const text = String(item.text ?? "").trim();

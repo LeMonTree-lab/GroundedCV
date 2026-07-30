@@ -73,3 +73,12 @@ test("supports real resume entry points", async () => {
   assert.match(parser, /mammoth/);
   assert.match(parser, /扫描件/);
 });
+
+test("treats skills and credentials as traceable fact assets", async () => {
+  const app = await readFile(new URL("../app/GroundedCVApp.tsx", import.meta.url), "utf8");
+  const model = await readFile(new URL("../app/product-model.ts", import.meta.url), "utf8");
+  for (const label of ["技能卡", "教育与研究卡", "获奖/证书卡", "作品与链接卡"]) assert.match(model, new RegExp(label));
+  assert.match(model, /assetsFromResumeText/);
+  assert.match(app, /其他事实资产/);
+  assert.match(app, /\.\.\.assets/);
+});
