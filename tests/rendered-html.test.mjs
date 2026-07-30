@@ -40,11 +40,22 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /window\.print/);
   assert.match(app, /upsertExperience/);
   assert.match(app, /PROJECT_STORAGE_KEY/);
-  assert.match(app, /生成基于事实的简历/);
+  assert.match(app, /先生成事实草稿/);
   assert.match(app, /generateGroundedResume/);
+  assert.match(app, /AI 按岗位改写/);
+  assert.match(app, /AI 拆解为原子事实/);
   assert.match(model, /export function generateGroundedResume/);
   assert.match(model, /fact\.status === "confirmed"/);
   assert.match(model, /includedExperienceCount/);
+});
+
+test("keeps DeepSeek keys in the current page session", async () => {
+  const client = await readFile(new URL("../app/deepseek-client.ts", import.meta.url), "utf8");
+  assert.match(client, /https:\/\/api\.deepseek\.com\/chat\/completions/);
+  assert.match(client, /response_format: \{ type: "json_object" \}/);
+  assert.match(client, /splitExperienceWithAi/);
+  assert.match(client, /rewriteResumeWithAi/);
+  assert.doesNotMatch(client, /localStorage|sessionStorage/);
 });
 
 test("supports real resume entry points", async () => {

@@ -1,0 +1,110 @@
+import type { Experience, Fact, GroundedProject, ResumeClaim } from "./product-model";
+
+export type AiSettings = {
+  apiKey: string;
+  model: "deepseek-v4-flash" | "deepseek-v4-pro";
+};
+
+type ChatResponse = { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+
+function requireKey(settings: AiSettings) {
+  if (!settings.apiKey.trim()) throw new Error("请先在「AI 设置」中填入 DeepSeek API Key。");
+}
+
+async function requestJson<T>(settings: AiSettings, system: string, user: string): Promise<T> {
+  requireKey(settings);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: settings.model,
+        stream: false,
+        temperature: 0.2,
+        max_tokens: 2200,
+        response_format: { type: "json_object" },
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      }),
+    });
+    const data = await response.json() as ChatResponse;
+    if (!response.ok) throw new Error(data.error?.message || `DeepSeek 请求失败（${response.status}）`);
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("DeepSeek 没有返回可解析内容，请重试。");
+    return JSON.parse(content) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
+    if (error instanceof SyntaxError) throw new Error("模型返回格式异常，请重试。");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function splitExperienceWithAi(settings: AiSettings, rawText: string): Promise<Array<Pick<Fact, "text" | "type">>> {
+  const data = await requestJson<{ facts?: Array<{ text?: string; type?: string }> }>(
+    settings,
+    `你是简历事实核查助手。把用户的经历文本拆成可逐项确认的原子事实。必须输出 json。
+规则：
+1. 不补充原文没有的数字、工具、职责、结果或因果关系。
+2. 每条只表达一个可核实主张；数字、成果和方法尽量分开。
+3. type 只能是：行动、方法、工具、数字 / 结果、协作、项目状态、其他。
+4. 保留原文事实，不润色成夸大的简历句。
+输出：{"facts":[{"text":"...","type":"行动"}]}`,
+    `请拆解以下真实经历：\n${rawText}`,
+  );
+  const facts = (data.facts ?? [])
+    .map((fact) => ({ text: String(fact.text ?? "").trim(), type: String(fact.type ?? "其他").trim() }))
+    .filter((fact) => fact.text.length >= 4)
+    .slice(0, 16);
+  if (!facts.length) throw new Error("没有识别到可确认事实，请改用换行手动拆分。");
+  return facts;
+}
+
+type AiClaim = { experienceId?: string; text?: string; facts?: string[]; risk?: "low" | "medium" };
+
+export async function rewriteResumeWithAi(settings: AiSettings, project: GroundedProject): Promise<ResumeClaim[]> {
+  const confirmed = project.experiences.map((experience) => ({
+    id: experience.id,
+    title: experience.title,
+    meta: experience.meta,
+    category: experience.category,
+    forbidden: experience.forbidden,
+    facts: experience.facts.filter((fact) => fact.status === "confirmed").map((fact) => ({ id: fact.id, text: fact.text, type: fact.type })),
+  })).filter((experience) => experience.facts.length);
+  if (!confirmed.length) throw new Error("请先确认至少一条事实，再生成简历。");
+  const data = await requestJson<{ claims?: AiClaim[] }>(
+    settings,
+    `你是中文求职简历编辑。根据 JD 为候选人生成简历 bullet，但必须严格受事实库约束，输出 json。
+规则：
+1. 只能使用输入 confirmed facts 的信息；不得新增数字、技能、工具、职责范围、项目上线状态、用户量或因果关系。
+2. 每条 claim 必须给出所有支撑它的 facts ID；facts 只能引用同一个 experienceId 的 ID。
+3. 优先选择与 JD 最相关的内容，压缩冗长原文，一段经历输出 1-3 条，每条 25-65 个中文字符。
+4. 原事实中含数字、增长、上线、主导、推动等高风险内容时 risk 写 medium；否则 low。
+5. 不支持的 JD 能力不要硬写。
+输出：{"claims":[{"experienceId":"EXP-01","text":"...","facts":["F101"],"risk":"low"}]}`,
+    JSON.stringify({ job: project.job, experiences: confirmed }),
+  );
+  const sourceById = new Map(project.experiences.map((experience) => [experience.id, experience]));
+  return (data.claims ?? []).flatMap((item, index) => {
+    const experience = sourceById.get(String(item.experienceId ?? ""));
+    const text = String(item.text ?? "").trim();
+    const facts = [...new Set((item.facts ?? []).filter((id) => experience?.facts.some((fact) => fact.id === id && fact.status === "confirmed")))];
+    if (!experience || text.length < 8 || !facts.length) return [];
+    const section = /工作|实习/.test(experience.category) ? "工作经历" : /项目|实践|校园/.test(experience.category) ? "项目经历" : "其他经历";
+    const sourceText = facts.map((id) => experience.facts.find((fact) => fact.id === id)?.text ?? "").join(" ");
+    return [{
+      id: `AI${String(index + 1).padStart(2, "0")}`,
+      experienceId: experience.id,
+      experienceTitle: experience.title,
+      experienceMeta: experience.meta,
+      section,
+      text,
+      facts,
+      jd: [],
+      risk: item.risk === "medium" || /\d|%|主导|推动|上线|提升/.test(sourceText) ? "medium" : "low",
+    } satisfies ResumeClaim];
+  });
+}

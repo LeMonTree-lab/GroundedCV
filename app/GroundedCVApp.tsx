@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import StartScreen from "./StartScreen";
+import { rewriteResumeWithAi, splitExperienceWithAi, type AiSettings } from "./deepseek-client";
 import {
   PROJECT_STORAGE_KEY,
   createSampleProject,
@@ -71,6 +72,8 @@ export default function GroundedCVApp() {
   const [activeStep, setActiveStep] = useState(0);
   const [selectedExperience, setSelectedExperience] = useState("EXP-02");
   const [notice, setNotice] = useState("");
+  const [aiSettings, setAiSettings] = useState<AiSettings>({ apiKey: "", model: "deepseek-v4-flash" });
+  const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -205,6 +208,7 @@ export default function GroundedCVApp() {
         <header className="topbar">
           <div className="breadcrumb">求职项目 <span>/</span> {project.job.title || "待填写岗位"} <span>/</span> {STEPS[activeStep][1]}</div>
           <div className="top-actions">
+            <button type="button" className={aiSettings.apiKey ? "api-ready" : "ghost-button"} onClick={() => setApiSettingsOpen(true)}>{aiSettings.apiKey ? "AI 已连接" : "AI 设置"}</button>
             <button type="button" className="ghost-button" onClick={() => setScreen("start")}>返回首页</button>
             <button type="button" className="ghost-button danger-text" onClick={resetProject}>清空项目</button>
             <button type="button" className="avatar" aria-label="当前候选人">{project.candidateName.slice(0, 1)}</button>
@@ -223,6 +227,7 @@ export default function GroundedCVApp() {
             updateFact={updateFact}
             upsertExperience={upsertExperience}
             deleteExperience={deleteExperience}
+            aiSettings={aiSettings}
             onNext={() => setActiveStep(1)}
           />
         ) : activeStep === 1 ? (
@@ -235,10 +240,18 @@ export default function GroundedCVApp() {
         ) : activeStep === 2 ? (
           <ResumeStudio
             project={project}
+            aiSettings={aiSettings}
             onGenerate={() => {
               const nextResume = generateGroundedResume(project);
               setProject((current) => ({ ...current, resume: nextResume }));
               setNotice(nextResume.claims.length ? "已根据最新确认事实生成简历" : "请先确认至少一条事实，再生成简历");
+              window.setTimeout(() => setNotice(""), 2400);
+            }}
+            onAiGenerate={(claims) => {
+              const baseline = generateGroundedResume(project);
+              const nextResume = { ...baseline, generatedAt: new Date().toISOString(), claims, includedExperienceCount: new Set(claims.map((claim) => claim.experienceId)).size };
+              setProject((current) => ({ ...current, resume: nextResume }));
+              setNotice("已按岗位 JD 完成事实约束改写");
               window.setTimeout(() => setNotice(""), 2400);
             }}
             onNext={() => setActiveStep(3)}
@@ -255,6 +268,7 @@ export default function GroundedCVApp() {
           <StagePlaceholder activeStep={activeStep} onBack={() => setActiveStep(Math.max(0, activeStep - 1))} />
         )}
       </section>
+      {apiSettingsOpen && <AiSettingsDialog settings={aiSettings} onClose={() => setApiSettingsOpen(false)} onSave={setAiSettings} />}
       {notice && <div className="toast" role="status">{notice}</div>}
     </main>
   );
@@ -396,30 +410,52 @@ function JobAnalysis({
 
 function ResumeStudio({
   project,
+  aiSettings,
   onGenerate,
+  onAiGenerate,
   onNext,
 }: {
   project: GroundedProject;
+  aiSettings: AiSettings;
   onGenerate: () => void;
+  onAiGenerate: (claims: ResumeClaim[]) => void;
   onNext: () => void;
 }) {
   const [selectedClaim, setSelectedClaim] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
   const resume = project.resume;
   const activeClaim = resume?.claims.find((claim) => claim.id === selectedClaim) ?? resume?.claims[0];
   const sourceFacts = project.experiences.flatMap((experience) => experience.facts);
   const sections: ResumeClaim["section"][] = ["工作经历", "项目经历", "其他经历"];
   const canInspect = Boolean(resume?.claims.length);
 
+  async function generateWithAi() {
+    setGenerating(true);
+    setAiError("");
+    try {
+      const claims = await rewriteResumeWithAi(aiSettings, project);
+      if (!claims.length) throw new Error("模型没有生成可由确认事实支持的简历表述，请重试或检查事实。\n");
+      onAiGenerate(claims);
+    } catch (reason) {
+      setAiError(reason instanceof Error ? reason.message : "AI 生成失败，请重试。");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <div className="page resume-page">
       <div className="page-heading">
         <div><span className="eyebrow">STEP 03 · GROUNDED WRITING</span><h1>整份简历，每句话都有来处</h1><p>只使用已确认事实。新增、编辑或更改事实状态后，必须重新生成，旧版本不会被悄悄沿用。</p></div>
         <div className="resume-heading-actions">
-          <button className="ghost-button" type="button" onClick={onGenerate}>{resume ? "按最新事实重新生成" : "生成基于事实的简历"}</button>
+          <button className="ghost-button" type="button" onClick={onGenerate}>{resume ? "按最新事实重新生成" : "先生成事实草稿"}</button>
+          <button className="primary-button" type="button" onClick={generateWithAi} disabled={generating}>{generating ? "AI 正在按 JD 改写…" : "AI 按岗位改写"}</button>
           <button className="primary-button" type="button" onClick={onNext} disabled={!canInspect}>开始 Claim 检测 <span>→</span></button>
         </div>
       </div>
-      {!resume ? <div className="resume-empty"><span>03</span><h2>尚未生成岗位化简历</h2><p>请先确认事实卡中的真实内容，再点击“生成基于事实的简历”。手动添加的经历默认视为你已确认；从原简历导入的内容需要逐条确认。</p></div> : resume.claims.length === 0 ? <div className="resume-empty"><span>!</span><h2>还没有可写入简历的确认事实</h2><p>返回事实库，至少确认一条你真实做过的行动、工具、结果或数字，再重新生成。</p></div> : <div className="resume-workspace">
+      {aiError && <p className="modal-error ai-inline-error" role="alert">{aiError}</p>}
+      {!resume ? <div className="resume-empty"><span>03</span><h2>尚未生成岗位化简历</h2><p>先生成事实草稿，或填写 AI 设置后让系统按岗位 JD 压缩、重组和改写。所有最终句子仍必须绑定确认事实。</p></div> : resume.claims.length === 0 ? <div className="resume-empty"><span>!</span><h2>还没有可写入简历的确认事实</h2><p>返回事实库，至少确认一条你真实做过的行动、工具、结果或数字，再重新生成。</p></div> : <div className="resume-workspace">
         <div className="resume-paper">
           <header className="resume-header"><div><h2>{resume.candidateName}</h2><p>{resume.targetTitle}</p></div><span>{project.job.company || "目标公司待填写"}<br />已确认 {resume.confirmedFactCount} 条事实 · 纳入 {resume.includedExperienceCount} 段经历</span></header>
           <section><h3>可信表达说明</h3><p>以下经历根据目标岗位相关性排序；每条均对应事实库中的确认事实，未确认、拒绝或无依据内容不会写入。</p></section>
@@ -596,6 +632,7 @@ function FactLibrary({
   updateFact,
   upsertExperience,
   deleteExperience,
+  aiSettings,
   onNext,
 }: {
   experiences: Experience[];
@@ -608,6 +645,7 @@ function FactLibrary({
   updateFact: (factId: string, status: FactStatus) => void;
   upsertExperience: (experience: Experience) => void;
   deleteExperience: (experienceId: string) => void;
+  aiSettings: AiSettings;
   onNext: () => void;
 }) {
   const [editing, setEditing] = useState<Experience | "new" | null>(null);
@@ -713,6 +751,7 @@ function FactLibrary({
             upsertExperience(experience);
             setEditing(null);
           }}
+          aiSettings={aiSettings}
         />
       )}
     </div>
@@ -723,10 +762,12 @@ function ExperienceEditor({
   experience,
   onClose,
   onSave,
+  aiSettings,
 }: {
   experience: Experience | null;
   onClose: () => void;
   onSave: (experience: Experience) => void;
+  aiSettings: AiSettings;
 }) {
   const [category, setCategory] = useState(experience?.category ?? "项目经历");
   const [title, setTitle] = useState(experience?.title ?? "");
@@ -734,6 +775,8 @@ function ExperienceEditor({
   const [factsText, setFactsText] = useState(experience?.facts.map((fact) => fact.text).join("\n") ?? "");
   const [forbiddenText, setForbiddenText] = useState(experience?.forbidden.join("\n") ?? "不得新增没有事实支持的数字、技能、职责和结果");
   const [error, setError] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiFactTypes, setAiFactTypes] = useState<Record<string, string>>({});
 
   function save() {
     const factLines = factsText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -752,13 +795,31 @@ function ExperienceEditor({
         return {
           id: previous?.id ?? `F${Date.now().toString().slice(-5)}${index + 1}`,
           text,
-          type: previous?.type ?? "用户确认事实",
-          status: previous ? (previous.text === text ? previous.status : "pending") : "confirmed",
+          type: previous?.type ?? aiFactTypes[text] ?? "待确认事实",
+          status: previous ? (previous.text === text ? previous.status : "pending") : "pending",
           source: previous?.text === text ? previous.source : `用户手动填写 · 第 ${index + 1} 条`,
         };
       }),
       forbidden: forbiddenText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     });
+  }
+
+  async function analyzeFacts() {
+    if (factsText.trim().length < 12) {
+      setError("请先粘贴至少一条完整经历，再使用 AI 拆解。");
+      return;
+    }
+    setAnalyzing(true);
+    setError("");
+    try {
+      const facts = await splitExperienceWithAi(aiSettings, factsText);
+      setFactsText(facts.map((fact) => fact.text).join("\n"));
+      setAiFactTypes(Object.fromEntries(facts.map((fact) => [fact.text, fact.type])));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AI 拆解失败，请重试。");
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   return (
@@ -774,17 +835,52 @@ function ExperienceEditor({
           <label>经历类型<select value={category} onChange={(event) => setCategory(event.target.value)}><option>工作经历</option><option>实习经历</option><option>项目经历</option><option>校园经历</option><option>教育经历</option><option>其他经历</option></select></label>
           <label>经历名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：GroundedCV 可信简历实验室" /></label>
           <label className="full-field">角色、时间或机构<input value={meta} onChange={(event) => setMeta(event.target.value)} placeholder="例如：独立产品项目｜2026.07—至今" /></label>
-          <label className="full-field">真实事实（每行一条）<textarea value={factsText} onChange={(event) => setFactsText(event.target.value)} placeholder={"调研公开招聘平台中的 AI 产品岗位需求\n使用 Codex 辅助完成可在线体验的 Web Demo\n项目尚未进行正式商业化上线"} /></label>
+          <label className="full-field">真实经历 / 原子事实<textarea value={factsText} onChange={(event) => setFactsText(event.target.value)} placeholder={"可先粘贴完整经历，再点下方 AI 拆解；或手动每行填写一条事实。\n调研公开招聘平台中的 AI 产品岗位需求\n使用 Codex 辅助完成可在线体验的 Web Demo\n项目尚未进行正式商业化上线"} /></label>
           <label className="full-field">禁止推断（每行一条）<textarea className="short-textarea" value={forbiddenText} onChange={(event) => setForbiddenText(event.target.value)} placeholder="例如：不得把可演示原型写成正式上线产品" /></label>
         </div>
         {error && <p className="modal-error" role="alert">{error}</p>}
         <div className="modal-actions">
+          <button type="button" className="ghost-button" onClick={analyzeFacts} disabled={analyzing}>{analyzing ? "AI 拆解中…" : "AI 拆解为原子事实"}</button>
           <button type="button" className="ghost-button" onClick={onClose}>取消</button>
           <button type="button" className="primary-button" onClick={save}>保存经历卡</button>
         </div>
       </section>
     </div>
   );
+}
+
+function AiSettingsDialog({
+  settings,
+  onClose,
+  onSave,
+}: {
+  settings: AiSettings;
+  onClose: () => void;
+  onSave: (settings: AiSettings) => void;
+}) {
+  const [apiKey, setApiKey] = useState(settings.apiKey);
+  const [model, setModel] = useState<AiSettings["model"]>(settings.model);
+  const [error, setError] = useState("");
+  function save() {
+    if (!apiKey.trim().startsWith("sk-")) {
+      setError("请输入以 sk- 开头的 DeepSeek API Key，或暂不启用 AI。\n");
+      return;
+    }
+    onSave({ apiKey: apiKey.trim(), model });
+    onClose();
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section className="experience-modal api-settings-modal" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
+      <div className="modal-heading"><div><span className="card-category">DEEPSEEK · 本次会话</span><h2 id="ai-settings-title">AI 设置</h2></div><button type="button" onClick={onClose} aria-label="关闭">×</button></div>
+      <div className="api-privacy-note"><strong>你的 Key 不会被保存。</strong><p>它只保留在当前打开的页面内，用于直接请求 DeepSeek；刷新、关闭页面或点击清空项目后即失效。AI 只会在你点击“AI 拆解”或“AI 按岗位改写”时收到相应文本。</p></div>
+      <div className="modal-grid">
+        <label className="full-field">DeepSeek API Key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-..." /></label>
+        <label className="full-field">模型<select value={model} onChange={(event) => setModel(event.target.value as AiSettings["model"])}><option value="deepseek-v4-flash">deepseek-v4-flash（默认，成本较低）</option><option value="deepseek-v4-pro">deepseek-v4-pro（更强的复杂改写）</option></select></label>
+      </div>
+      {error && <p className="modal-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="button" className="ghost-button" onClick={() => { onSave({ apiKey: "", model }); onClose(); }}>暂不使用 AI</button><button type="button" className="primary-button" onClick={save}>保存到当前会话</button></div>
+    </section>
+  </div>;
 }
 
 function StagePlaceholder({ activeStep, onBack }: { activeStep: number; onBack: () => void }) {

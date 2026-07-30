@@ -265,6 +265,12 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .modal-grid .full-field { grid-column: 1 / -1; }
 .modal-error { margin: 12px 0 0; color: var(--red); font-size: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.modal-actions button:disabled, .resume-heading-actions button:disabled { cursor: not-allowed; opacity: .58; }
+.api-ready { padding: 8px 11px; color: var(--green-dark); background: var(--green-soft); border: 1px solid #b9dece; border-radius: 7px; cursor: pointer; font-size: 10px; font-weight: 700; }
+.api-settings-modal { width: min(540px, 100%); }
+.api-privacy-note { margin: 0 0 18px; padding: 14px 15px; color: #486358; background: #edf7f1; border: 1px solid #c7e4d6; border-radius: 9px; font-size: 11px; line-height: 1.6; }
+.api-privacy-note strong { color: var(--green-dark); }.api-privacy-note p { margin: 4px 0 0; }
+.ai-inline-error { margin: 0 0 14px; padding: 11px 13px; background: var(--red-soft); border: 1px solid #e4aaa4; border-radius: 8px; }
 
 .job-summary { display: flex; justify-content: space-between; align-items: center; padding: 24px 28px; background: #fff; border: 1px solid var(--line); border-radius: 13px 13px 0 0; }
 .job-company { display: flex; align-items: center; gap: 16px; }
