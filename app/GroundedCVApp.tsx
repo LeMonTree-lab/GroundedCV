@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import StartScreen from "./StartScreen";
-import { rewriteResumeWithAi, splitExperienceWithAi, type AiSettings } from "./deepseek-client";
+import { analyzeJobFitWithAi, rewriteResumeWithAi, splitExperienceWithAi, type AiSettings } from "./deepseek-client";
 import {
   PROJECT_STORAGE_KEY,
   createSampleProject,
@@ -12,6 +12,7 @@ import {
   type GroundedProject,
   type JobTarget,
   type ResumeClaim,
+  type SemanticJobRequirement,
 } from "./product-model";
 
 const STEPS = [
@@ -46,6 +47,7 @@ const REQUIREMENTS = [
 
 const coverageLabel: Record<string, string> = {
   covered: "已覆盖",
+  transferable: "可迁移",
   partial: "部分覆盖",
   missing: "未覆盖",
   unknown: "信息不足",
@@ -254,7 +256,10 @@ export default function GroundedCVApp() {
           <JobAnalysis
             job={project.job}
             experiences={project.experiences}
-            updateJob={(job) => setProject((current) => ({ ...current, job, resume: undefined }))}
+            aiSettings={aiSettings}
+            analysis={project.jobAnalysis}
+            updateJob={(job) => setProject((current) => ({ ...current, job, jobAnalysis: undefined, resume: undefined }))}
+            saveAnalysis={(jobAnalysis) => setProject((current) => ({ ...current, jobAnalysis }))}
             onNext={() => setActiveStep(2)}
           />
         ) : activeStep === 2 ? (
@@ -350,16 +355,26 @@ function deriveRequirements(job: JobTarget, experiences: Experience[]) {
 function JobAnalysis({
   job,
   experiences,
+  aiSettings,
+  analysis,
   updateJob,
+  saveAnalysis,
   onNext,
 }: {
   job: JobTarget;
   experiences: Experience[];
+  aiSettings: AiSettings;
+  analysis?: SemanticJobRequirement[];
   updateJob: (job: JobTarget) => void;
+  saveAnalysis: (analysis: SemanticJobRequirement[]) => void;
   onNext: () => void;
 }) {
-  const requirements = useMemo(() => deriveRequirements(job, experiences), [job, experiences]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const ruleRequirements = useMemo(() => deriveRequirements(job, experiences), [job, experiences]);
+  const requirements = analysis?.length ? analysis.map((item) => ({ ...item, facts: item.factIds.length ? item.factIds.join(" · ") : "暂无事实" })) : ruleRequirements;
   const covered = requirements.filter((item) => item.level === "covered").length;
+  const transferable = requirements.filter((item) => item.level === "transferable").length;
   const partial = requirements.filter((item) => item.level === "partial").length;
   const missing = requirements.filter((item) => item.level === "missing").length;
   const canContinue = Boolean(job.company.trim() && job.title.trim() && job.description.trim());
@@ -372,6 +387,24 @@ function JobAnalysis({
     onNext();
   }
 
+  async function analyzeSemantically() {
+    if (!canContinue) {
+      setAiError("请先填写公司、岗位名称和完整 JD。");
+      return;
+    }
+    setAnalyzing(true);
+    setAiError("");
+    try {
+      const next = await analyzeJobFitWithAi(aiSettings, job, experiences);
+      if (!next.length) throw new Error("AI 没有返回可用的岗位能力单元，请重试。");
+      saveAnalysis(next);
+    } catch (reason) {
+      setAiError(reason instanceof Error ? reason.message : "AI 语义匹配失败，请重试。");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -380,7 +413,7 @@ function JobAnalysis({
           <h1>岗位需要什么，你的事实能证明什么</h1>
           <p>不提供虚假的“87 分匹配度”。每项要求都会显示覆盖状态、支持事实和判断理由。</p>
         </div>
-        <button className="primary-button" type="button" onClick={continueToResume}>生成岗位化简历 <span>→</span></button>
+        <div className="resume-heading-actions"><button className="ghost-button" type="button" onClick={analyzeSemantically} disabled={analyzing}>{analyzing ? "AI 正在语义匹配…" : analysis?.length ? "重新 AI 语义匹配" : "AI 语义匹配"}</button><button className="primary-button" type="button" onClick={continueToResume}>生成岗位化简历 <span>→</span></button></div>
       </div>
 
       <section className="job-entry-card">
@@ -395,19 +428,22 @@ function JobAnalysis({
         </div>
       </section>
 
+      {aiError && <p className="modal-error ai-inline-error" role="alert">{aiError}</p>}
+
       {requirements.length > 0 ? <>
       <div className="job-summary">
         <div className="job-company"><span className="company-mark">{job.company.slice(0, 1)}</span><div><span>{job.company}</span><h2>{job.title}</h2><p>{requirements.slice(0, 5).map((item) => item.text.slice(0, 10)).join(" · ")}</p></div></div>
-        <div className="coverage-donut" style={{ "--coverage": `${((covered + partial * 0.5) / requirements.length) * 100}%` } as React.CSSProperties}>
-          <div><strong>{covered + partial}</strong><span>项有事实响应</span></div>
+        <div className="coverage-donut" style={{ "--coverage": `${((covered + transferable * 0.75 + partial * 0.5) / requirements.length) * 100}%` } as React.CSSProperties}>
+          <div><strong>{covered + transferable + partial}</strong><span>项有事实响应</span></div>
         </div>
       </div>
 
       <div className="coverage-legend">
         <span><i className="dot covered" />{covered} 项已覆盖</span>
+        <span><i className="dot transferable" />{transferable} 项可迁移</span>
         <span><i className="dot partial" />{partial} 项部分覆盖</span>
         <span><i className="dot missing" />{missing} 项未覆盖</span>
-        <span><i className="dot unknown" />规则初筛，AI 精析将在下一批接入</span>
+        <span><i className="dot unknown" />{analysis?.length ? "AI 语义分析，仍受确认事实约束" : "当前为规则初筛；可点击 AI 语义匹配"}</span>
       </div>
 
       <div className="requirements-table">
@@ -417,7 +453,7 @@ function JobAnalysis({
             <div><code>{item.id}</code><strong>{item.text}</strong><small>{item.type}</small></div>
             <span className={`coverage ${item.level}`}>{coverageLabel[item.level]}</span>
             <span className={item.level === "missing" ? "fact-links muted" : "fact-links"}>{item.facts}</span>
-            <p>{item.reason}</p>
+            <p>{item.reason}{"safeExpression" in item && item.safeExpression ? ` 安全表达：${item.safeExpression}` : ""}{"followUp" in item && item.followUp ? ` 待补充：${item.followUp}` : ""}</p>
           </article>
         ))}
       </div>

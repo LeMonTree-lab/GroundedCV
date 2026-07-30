@@ -23,6 +23,17 @@ export type JobTarget = {
   description: string;
 };
 
+export type SemanticJobRequirement = {
+  id: string;
+  text: string;
+  type: string;
+  level: "covered" | "transferable" | "partial" | "missing";
+  factIds: string[];
+  reason: string;
+  safeExpression: string;
+  followUp: string;
+};
+
 export type ResumeClaim = {
   id: string;
   experienceId: string;
@@ -52,6 +63,7 @@ export type GroundedProject = {
   candidateName: string;
   experiences: Experience[];
   job: JobTarget;
+  jobAnalysis?: SemanticJobRequirement[];
   resume?: GeneratedResume;
   updatedAt: string;
 };

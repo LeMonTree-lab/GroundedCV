@@ -302,6 +302,8 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .dot.covered { background: var(--green); }
 .dot.partial, .coverage.partial { background: var(--amber-soft); color: var(--amber); }
 .dot.partial { background: #df981c; }
+.dot.transferable, .coverage.transferable { background: #e8efff; color: #3f5f9c; }
+.dot.transferable { background: #6386c4; }
 .dot.missing, .coverage.missing { background: var(--red-soft); color: var(--red); }
 .dot.missing { background: var(--red); }
 .dot.unknown, .coverage.unknown { background: #ecefed; color: #6f7874; }

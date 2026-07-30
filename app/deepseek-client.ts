@@ -1,4 +1,4 @@
-import type { Experience, Fact, GroundedProject, ResumeClaim } from "./product-model";
+import type { Experience, Fact, GroundedProject, ResumeClaim, SemanticJobRequirement } from "./product-model";
 
 export type AiSettings = {
   apiKey: string;
@@ -61,6 +61,40 @@ export async function splitExperienceWithAi(settings: AiSettings, rawText: strin
     .slice(0, 16);
   if (!facts.length) throw new Error("没有识别到可确认事实，请改用换行手动拆分。");
   return facts;
+}
+
+export async function analyzeJobFitWithAi(settings: AiSettings, job: GroundedProject["job"], experiences: Experience[]): Promise<SemanticJobRequirement[]> {
+  const facts = experiences.flatMap((experience) => experience.facts.map((fact) => ({
+    id: fact.id, text: fact.text, type: fact.type, status: fact.status, experience: experience.title,
+  })));
+  const data = await requestJson<{ requirements?: Array<Partial<SemanticJobRequirement>> }>(
+    settings,
+    `你是求职证据匹配助手。把岗位 JD 拆成能力单元，并只依据用户事实库进行语义匹配。必须输出 json。
+规则：
+1. level 只能为 covered、transferable、partial、missing。
+2. covered：确认事实直接支持；transferable：能力/方法相近但业务场景不同；partial：有相关动作但缺关键证据；missing：没有证据。
+3. factIds 只能引用输入中的事实 ID，且 covered / transferable 只能引用 status=confirmed 的事实。
+4. 不得把“用户旅程”说成“内部业务流程优化”，不得把概念项目说成正式上线。
+5. safeExpression 必须是可写入简历的安全表达；missing 时留空。followUp 是用户可回答的具体补充问题；只有 partial 时填写。
+输出：{"requirements":[{"id":"JD01","text":"...","type":"核心任务","level":"transferable","factIds":["F101"],"reason":"...","safeExpression":"...","followUp":"..."}]}`,
+    JSON.stringify({ job, facts }),
+  );
+  const validIds = new Map(facts.map((fact) => [fact.id, fact]));
+  return (data.requirements ?? []).slice(0, 14).flatMap((item, index) => {
+    const level = ["covered", "transferable", "partial", "missing"].includes(String(item.level)) ? item.level as SemanticJobRequirement["level"] : "missing";
+    const factIds = [...new Set((item.factIds ?? []).filter((id): id is string => typeof id === "string" && validIds.has(id)))];
+    const validForLevel = level === "partial" ? factIds : factIds.filter((id) => validIds.get(id)?.status === "confirmed");
+    return [{
+      id: String(item.id ?? `JD${String(index + 1).padStart(2, "0")}`),
+      text: String(item.text ?? "").trim(),
+      type: String(item.type ?? "岗位要求").trim(),
+      level: validForLevel.length || level === "missing" ? level : "missing",
+      factIds: validForLevel,
+      reason: String(item.reason ?? "当前事实库暂无足够证据。").trim(),
+      safeExpression: String(item.safeExpression ?? "").trim(),
+      followUp: String(item.followUp ?? "").trim(),
+    } satisfies SemanticJobRequirement].filter((item) => item.text.length >= 4);
+  });
 }
 
 type AiClaim = { experienceId?: string; text?: string; facts?: string[]; risk?: "low" | "medium" };
