@@ -190,9 +190,8 @@ function inferFactType(text: string) {
   return "经历事实";
 }
 
-const SECTION_NAMES = "教育经历|教育背景|研究方向|工作经历|实习经历|项目经历|项目经验|校园经历|实践经历|社会实践|获奖经历|荣誉奖项|专业技能|技能证书|作品集|作品链接|个人作品|个人总结|自我评价|基本信息|个人信息";
-const SECTION_PATTERN = new RegExp(`^(${SECTION_NAMES})[：:]?$`);
-const INLINE_SECTION_PATTERN = new RegExp(`^(${SECTION_NAMES})[：:]?\\s*(.*)$`);
+const SECTION_LABELS = ["教育经历", "教育背景", "研究方向", "工作经历", "实习经历", "项目经历", "项目经验", "校园经历", "实践经历", "社会实践", "获奖经历", "荣誉奖项", "专业技能", "技能证书", "作品集", "作品链接", "个人作品", "个人总结", "自我评价", "基本信息", "个人信息"];
+const SECTION_NAMES = SECTION_LABELS.join("|");
 
 const ASSET_CATEGORIES: Record<string, FactAsset["category"]> = {
   "专业技能": "技能卡", "技能证书": "技能卡", "教育经历": "教育与研究卡", "教育背景": "教育与研究卡",
@@ -211,9 +210,11 @@ function canonicalSection(category: string) {
 }
 
 function needsConfirmation(text: string) {
-  // Imported text is traceable to the original resume. Only claims whose boundary is
-  // materially ambiguous are sent to the user for confirmation.
-  return /\d|%|第[一二三四五六七八九十]|TOP|排名|获奖|金奖|一等奖|熟练|精通|负责|主导|独立|推动|上线|增长|提升|降低|完成.*项目|领导/i.test(text);
+  // A source-clear fact should be auto-collected. Ask only when wording could
+  // materially overstate personal ownership, ability level or business impact.
+  // Dates, language scores and named awards alone are not treated as risky.
+  return /主导|独立(?:负责|完成|推进)|全权|牵头|领导|推动.*(?:上线|落地)|上线|增长|提升|降低|转化|GMV|营收|ROI|TOP|排名前|熟练|精通|专家|负责.*(?:全程|整体)|从0到1|从零到一/i.test(text)
+    || (/[；;]/.test(text) && text.split(/[；;]/).filter(Boolean).length >= 3);
 }
 
 function importedStatus(text: string): FactStatus {
@@ -223,8 +224,13 @@ function importedStatus(text: string): FactStatus {
 function resumeSections(text: string) {
   // PDF extraction often loses the newline around a section heading. Restore it
   // before parsing so a project section is not swallowed by profile text.
-  const normalizedText = text.replace(new RegExp(`(${SECTION_NAMES})(?=[：:]|\\n)`, "g"), "\n$1\n");
-  const rawLines = normalizedText.split(/\r?\n/).map(cleanLine).filter(Boolean);
+  const normalizedText = text.replace(new RegExp(`(${SECTION_NAMES})(?=[：:]|\\n|\\s+第?\\d+(?:页)?\\b)`, "g"), "\n$1\n");
+  const rawLines = normalizedText
+    .split(/\r?\n/)
+    .map(cleanLine)
+    // Page counters such as "3" or "第 3 页" are frequently extracted as content.
+    // They must not become facts or alter a section heading.
+    .filter((line) => Boolean(line) && !/^(?:第?\d+|第?\d+页)$/.test(line));
   const sections: Array<{ category: string; lines: string[] }> = [];
   let current = { category: "其他信息", lines: [] as string[] };
   const push = () => {
@@ -233,16 +239,15 @@ function resumeSections(text: string) {
   };
   for (const rawLine of rawLines) {
     const line = cleanLine(rawLine);
-    const inline = line.match(INLINE_SECTION_PATTERN);
-    if (inline) {
+    const sectionLabel = SECTION_LABELS.find((label) => {
+      return new RegExp(`^(?:第?\\d+[、.．]\\s*)?${label}(?:[：:]|\\s+第?\\d+(?:页)?|\\s*)`, "i").test(line);
+    });
+    if (sectionLabel) {
+      const remainder = line
+        .replace(new RegExp(`^(?:第?\\d+[、.．]\\s*)?${sectionLabel}(?:[：:]|\\s+第?\\d+(?:页)?)?\\s*`, "i"), "")
+        .trim();
       push();
-      current = { category: canonicalSection(inline[1]), lines: inline[2] ? [inline[2]] : [] };
-      continue;
-    }
-    const heading = line.match(SECTION_PATTERN);
-    if (heading) {
-      push();
-      current = { category: canonicalSection(heading[1]), lines: [] };
+      current = { category: canonicalSection(sectionLabel), lines: remainder ? [remainder] : [] };
       continue;
     }
     current.lines.push(line);
