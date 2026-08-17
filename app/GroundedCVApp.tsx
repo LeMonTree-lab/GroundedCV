@@ -823,7 +823,7 @@ function ReverseEdit({ risks, onApplyAll, onNext }: { risks: LiveRisk[]; onApply
             <div className="batch-choices">
               <button type="button" className={choice === "keep" ? "active risky" : ""} onClick={() => setChoices((current) => ({ ...current, [risk.id]: "keep" }))}><strong>保留原文</strong><small>保留当前表达</small></button>
               <button type="button" className={choice === "weaken" ? "active recommended" : ""} onClick={() => setChoices((current) => ({ ...current, [risk.id]: "weaken" }))}><strong>回到事实边界</strong><small>{risk.suggestion}</small></button>
-              <button type="button" className={choice === "delete" ? "active" : ""} onClick={() => setChoices((current) => ({ ...current, [risk.id]: "delete" }))}><strong>不写入最终简历</strong><small>删除此 Claim</small></button>
+              <button type="button" className={`delete-choice ${choice === "delete" ? "active" : ""}`} onClick={() => setChoices((current) => ({ ...current, [risk.id]: "delete" }))}><strong>不写入最终简历</strong><small>删除此 Claim</small></button>
             </div>
           </article>;
         })}
@@ -864,10 +864,10 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
   }
   return (
     <div className="page report-page">
-      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim；请在投递前处理仍存在的高风险表述。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制" : "复制 Markdown"}</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
+      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim；请在投递前处理仍存在的高风险表述。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制完整简历" : "复制完整简历 Markdown"}</button><button type="button" className="ghost-button" onClick={() => document.getElementById("final-application-resume")?.scrollIntoView({ behavior: "smooth" })}>查看完整投递版 ↓</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
       <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>{traceability}%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{interviews.length}</strong><span>已完成追问</span></div></div>
-      <section className="final-resume-preview">
-        <div className="final-resume-head"><div><span className="card-category">FINAL RESUME · 已应用本轮修改</span><h2>{project.candidateName}</h2><p>{project.resume?.targetTitle ?? project.job.title}{project.job.company ? ` · ${project.job.company}` : ""}</p></div><span>{finalClaims.length} 条最终 Claim</span></div>
+      <section className="final-resume-preview" id="final-application-resume">
+        <div className="final-resume-head"><div><span className="card-category">FINAL RESUME · 已应用本轮修改</span><h2>完整投递版简历</h2><p>以下是应用保留、弱化、删除决定后的全部内容；可直接复制或导出。</p><h2 className="candidate-name">{project.candidateName}</h2><p>{project.resume?.targetTitle ?? project.job.title}{project.job.company ? ` · ${project.job.company}` : ""}</p></div><span>{finalClaims.length} 条最终 Claim</span></div>
         {finalSections.length ? finalSections.map(({ section, entries }) => <section className="final-resume-section" key={section}><h3>{section}</h3>{entries.map((entry) => <div className="final-resume-entry" key={`${section}-${entry.title}`}><div className="final-entry-head"><strong>{entry.title}</strong>{entry.meta && <small>{entry.meta}</small>}</div>{entry.claims.map((claim) => <p key={claim.id}><i />{claim.text}<code>{claim.id}</code></p>)}</div>)}</section>) : <p className="detail-copy">所有 Claim 均被删除。请返回“反向修改”保留至少一条可确认的经历表述。</p>}
       </section>
       <div className="report-grid">
