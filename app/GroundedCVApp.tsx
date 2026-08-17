@@ -156,7 +156,7 @@ export default function GroundedCVApp() {
   const facts = useMemo(() => [...experiences, ...assets].flatMap((item) => item.facts), [experiences, assets]);
   const confirmed = facts.filter((fact) => fact.status === "confirmed").length;
   const pending = facts.filter((fact) => fact.status === "pending").length;
-  const currentExperience = (experiences.find((item) => item.id === selectedExperience) ?? experiences[0])!;
+  const currentExperience = experiences.find((item) => item.id === selectedExperience) ?? experiences[0];
   const liveRisks = useMemo(() => inspectResume(project), [project]);
 
   const selectedRisk = liveRisks.find((item) => item.id === selectedRiskId)
@@ -350,7 +350,7 @@ export default function GroundedCVApp() {
             experiences={experiences}
             selectedExperience={selectedExperience}
             setSelectedExperience={setSelectedExperience}
-            currentExperience={currentExperience}
+          currentExperience={currentExperience}
             confirmed={confirmed}
             pending={pending}
             total={facts.length}
@@ -386,7 +386,12 @@ export default function GroundedCVApp() {
             }}
             onAiGenerate={(claims) => {
               const baseline = generateGroundedResume(project);
-              const nextResume = { ...baseline, generatedAt: new Date().toISOString(), claims, includedExperienceCount: new Set(claims.map((claim) => claim.experienceId)).size };
+              // Models can truncate or omit a project. Preserve a fact-only fallback
+              // for every record that the rewrite did not return.
+              const rewrittenRecordIds = new Set(claims.map((claim) => claim.experienceId));
+              const fallbackClaims = baseline.claims.filter((claim) => !rewrittenRecordIds.has(claim.experienceId));
+              const mergedClaims = [...claims, ...fallbackClaims];
+              const nextResume = { ...baseline, generatedAt: new Date().toISOString(), claims: mergedClaims, includedExperienceCount: new Set(mergedClaims.map((claim) => claim.experienceId)).size };
               setProject((current) => ({ ...current, resume: nextResume }));
               setNotice("已按岗位 JD 完成事实约束改写");
               window.setTimeout(() => setNotice(""), 2400);
@@ -431,6 +436,11 @@ const SEMANTIC_MATCHERS = [
   { pattern: /用户反馈|数据|迭代|优化|测试/, terms: ["评价", "反馈", "测试", "验证", "优化", "热力图"], expression: "收集公开反馈并参与概念或功能验证", followUp: "反馈如何影响后续的方案调整？是否有版本记录？" },
   { pattern: /LLM|Prompt|Agent|Skill/, terms: ["LLM", "Agent", "ChatGPT", "Gemini", "Codex", "研究方向"], expression: "关注 LLM 与 Agent 相关研究方向，并使用生成式 AI 工具辅助概念验证", followUp: "你对相关概念的理解是否能结合一个具体项目说明？" },
   { pattern: /Vibe Coding|Codex|Claude|AI编程|Demo/, terms: ["Codex", "Python", "原型", "Demo", "AI"], expression: "具备 Python 基础并完成过可演示原型", followUp: "是否实际使用过 AI 编程工具完成可运行 Demo？若有，请补充链接或代码。" },
+  { pattern: /项目材料|需求文档|流程图|调研总结|阶段复盘|汇报|PPT/, terms: ["Word", "PPT", "Excel", "飞书", "报告", "策划", "调研", "设计", "组织", "内容"], expression: "参与调研、方案或展示材料的整理与输出", followUp: "请补充一份你实际撰写过的材料、结构或使用场景。" },
+  { pattern: /AI方案|工具原型|工作流|知识库|自动化脚本|Demo/, terms: ["Python", "ChatGPT", "飞书", "Canva", "设计", "原型", "AI", "项目", "竞赛", "开发"], expression: "结合既有工具与设计经验参与 AI 场景方案或原型探索", followUp: "请说明实际使用的工具、输入输出，以及原型或方案的验证方式。" },
+  { pattern: /用户场景|业务流程|痛点|需求优先级/, terms: ["调研", "分析", "设计", "组织", "用户", "内容", "项目", "竞赛", "流程"], expression: "基于调研或项目材料梳理场景、问题与可行方案", followUp: "请补充你如何确定问题优先级，或如何把观察转化为方案。" },
+  { pattern: /AI工具|产品设计|用户体验|设计提效/, terms: ["ChatGPT", "飞书", "Canva", "设计", "Python", "SQL", "项目", "竞赛"], expression: "具备设计与数字工具使用基础，可在真实边界内迁移到 AI 产品场景", followUp: "请结合一个具体项目说明你如何使用工具或考虑用户体验。" },
+  { pattern: /Excel|飞书表格|PPT|分析|汇报/, terms: ["Excel", "PPT", "飞书", "Word", "数据", "报告", "策划"], expression: "使用办公与协作工具整理信息并完成展示或汇报材料", followUp: "请说明你使用过的表格、汇报或协作文档及其用途。" },
 ];
 
 function deriveRequirements(job: JobTarget, experiences: Array<Experience | FactAsset>) {
@@ -458,7 +468,13 @@ function deriveRequirements(job: JobTarget, experiences: Array<Experience | Fact
         fact.status !== "rejected" &&
         matchTerms.some((term) => fact.text.toLowerCase().includes(term.toLowerCase())),
     );
-    const confirmedMatches = matchedFacts.filter((fact) => fact.status === "confirmed");
+    // A title/meta can be useful context for a transferable match (e.g. a design
+    // competition or campus project), but it never becomes a claim by itself.
+    const contextualFactIds = experiences
+      .filter((record) => matchTerms.some((term) => `${record.title} ${record.meta}`.toLowerCase().includes(term.toLowerCase())))
+      .flatMap((record) => record.facts.filter((fact) => fact.status === "confirmed").slice(0, 1));
+    const combinedMatches = [...new Map([...matchedFacts, ...contextualFactIds].map((fact) => [fact.id, fact])).values()];
+    const confirmedMatches = combinedMatches.filter((fact) => fact.status === "confirmed");
     const directMatch = confirmedMatches.some((fact) => text.split(/[、，,：:（）()]/).some((piece) => piece.length >= 3 && fact.text.includes(piece)));
     const level =
       confirmedMatches.length >= 1 && directMatch
@@ -473,7 +489,7 @@ function deriveRequirements(job: JobTarget, experiences: Array<Experience | Fact
       text,
       type: index < 6 ? "核心任务" : "能力要求",
       level,
-      facts: matchedFacts.length ? matchedFacts.slice(0, 3).map((fact) => fact.id).join(" · ") : "暂无事实",
+      facts: combinedMatches.length ? combinedMatches.slice(0, 3).map((fact) => fact.id).join(" · ") : "暂无事实",
       reason:
         level === "covered"
           ? "已找到与岗位要求直接对应的确认事实，可作为核心证据。"
@@ -902,7 +918,7 @@ function FactLibrary({
   experiences: Experience[];
   selectedExperience: string;
   setSelectedExperience: (id: string) => void;
-  currentExperience: Experience;
+  currentExperience?: Experience;
   confirmed: number;
   pending: number;
   total: number;
@@ -919,6 +935,7 @@ function FactLibrary({
   const progress = total ? Math.round((confirmed / total) * 100) : 0;
 
   function requestDelete() {
+    if (!currentExperience) return;
     if (experiences.length <= 1) {
       window.alert("至少需要保留一张经历卡。你可以编辑当前经历，而不是删除。");
       return;
@@ -934,7 +951,7 @@ function FactLibrary({
         <div>
           <span className="eyebrow">STEP 01 · EVIDENCE FIRST</span>
           <h1>先确认事实，再让 AI 写简历</h1>
-          <p>原简历不是绝对真相。请逐条确认角色、行动、数字和结果，后续每句话都将从这里寻找来源。</p>
+          <p>来源清楚的描述会自动收录；只需核查数字、奖项、职责边界、能力等级和结果等模糊或高风险内容，后续每句话都将从这里寻找来源。</p>
         </div>
         <button className="primary-button" type="button" onClick={onNext}>确认并分析岗位 <span>→</span></button>
       </div>
@@ -972,7 +989,7 @@ function FactLibrary({
           })}
         </aside>
 
-        <div className="fact-panel">
+        {currentExperience ? <div className="fact-panel">
           <div className="fact-panel-head">
             <div><span className="card-category">{currentExperience.id}</span><h2>{currentExperience.title}</h2><p>{currentExperience.meta}</p></div>
             <div className="fact-panel-actions">
@@ -993,12 +1010,12 @@ function FactLibrary({
                 </div>
                 <div className="source-cell"><span>⌁</span>{fact.source}</div>
                 <div className="fact-actions">
-                  <span className={`status ${fact.status}`}>{statusLabel[fact.status]}</span>
-                  <div>
+                  <span className={`status ${fact.status}`}>{fact.status === "confirmed" ? "自动收录" : statusLabel[fact.status]}</span>
+                  {fact.status === "confirmed" ? <div className="auto-confirmed-action"><span>来源清楚，无需逐条确认</span><button type="button" className="text-button" onClick={() => updateFact(fact.id, "uncertain")}>改为待确认</button></div> : <div>
                     <button type="button" className={fact.status === "confirmed" ? "action selected" : "action"} onClick={() => updateFact(fact.id, "confirmed")}>✓ 符合事实</button>
                     <button type="button" className={fact.status === "uncertain" ? "action selected warning" : "action"} onClick={() => updateFact(fact.id, "uncertain")}>? 不确定</button>
                     <button type="button" className={fact.status === "rejected" ? "action selected danger" : "action"} onClick={() => updateFact(fact.id, "rejected")}>× 不采用</button>
-                  </div>
+                  </div>}
                 </div>
               </article>
             ))}
@@ -1008,7 +1025,7 @@ function FactLibrary({
             <div><span className="shield">!</span><strong>本段经历的禁止推断</strong></div>
             <ul>{currentExperience.forbidden.map((item) => <li key={item}>{item}</li>)}</ul>
           </div>
-        </div>
+        </div> : <div className="fact-panel empty-fact-panel"><span className="eyebrow">IMPORT REVIEW</span><h2>暂未识别出项目、实习或工作经历</h2><p>个人信息、技能、教育与奖项已被保存为事实资产，不会被误当作经历卡。你可以补充一个真实项目/实践经历，或继续用事实资产进行岗位匹配。</p><button type="button" className="primary-button" onClick={() => setEditing("new")}>＋ 添加项目或实习经历</button></div>}
       </div>
       <AssetLibrary assets={assets} updateFact={updateFact} upsertAsset={upsertAsset} deleteAsset={deleteAsset} />
       {editing && (
@@ -1046,7 +1063,7 @@ function AssetLibrary({
     <div className="asset-grid">
       {assets.map((asset) => <article className="asset-card" key={asset.id}>
         <div className="asset-card-head"><div><span className="card-category">{asset.category}</span><h3>{asset.title}</h3><p>{asset.meta}</p></div><div><button type="button" className="text-button" onClick={() => setEditing(asset)}>编辑</button><button type="button" className="text-button danger-text" onClick={() => { if (window.confirm(`确定删除“${asset.title}”吗？`)) deleteAsset(asset.id); }}>删除</button></div></div>
-        <div className="asset-facts">{asset.facts.map((fact) => <div className="asset-fact" key={fact.id}><div><code>{fact.id}</code><span className={`status ${fact.status}`}>{statusLabel[fact.status]}</span><p>{fact.text}</p></div><div className="asset-actions"><button type="button" className={fact.status === "confirmed" ? "action selected" : "action"} onClick={() => updateFact(fact.id, "confirmed")}>✓ 确认</button><button type="button" className={fact.status === "uncertain" ? "action selected warning" : "action"} onClick={() => updateFact(fact.id, "uncertain")}>? 不确定</button><button type="button" className={fact.status === "rejected" ? "action selected danger" : "action"} onClick={() => updateFact(fact.id, "rejected")}>× 不采用</button></div></div>)}</div>
+        <div className="asset-facts">{asset.facts.map((fact) => <div className="asset-fact" key={fact.id}><div><code>{fact.id}</code><span className={`status ${fact.status}`}>{statusLabel[fact.status]}</span><p>{fact.text}</p></div>{fact.status === "confirmed" ? <div className="asset-auto-confirmed"><span>来源清楚 · 自动收录</span><button type="button" className="text-button" onClick={() => updateFact(fact.id, "pending")}>改为待确认</button></div> : <div className="asset-actions"><button type="button" className={fact.status === "confirmed" ? "action selected" : "action"} onClick={() => updateFact(fact.id, "confirmed")}>✓ 确认</button><button type="button" className={fact.status === "uncertain" ? "action selected warning" : "action"} onClick={() => updateFact(fact.id, "uncertain")}>? 不确定</button><button type="button" className={fact.status === "rejected" ? "action selected danger" : "action"} onClick={() => updateFact(fact.id, "rejected")}>× 不采用</button></div>}</div>)}</div>
       </article>)}
     </div>
     {!assets.length && <div className="asset-empty"><strong>还没有其他事实资产</strong><p>添加你确认过的技能、教育研究、奖项证书或作品链接；它们不会被当作项目经历，也不会自动升级为工作成果。</p></div>}

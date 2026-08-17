@@ -130,9 +130,10 @@ export async function rewriteResumeWithAi(settings: AiSettings, project: Grounde
 规则：
 1. 只能使用输入 confirmed facts 的信息；不得新增数字、技能、工具、职责范围、项目上线状态、用户量或因果关系。
 2. 每条 claim 必须给出所有支撑它的 facts ID；facts 只能引用同一个 experienceId 的 ID。
-3. 优先选择与 JD 最相关的内容，压缩冗长原文，一段经历输出 1-3 条，每条 25-65 个中文字符。
-4. 原事实中含数字、增长、上线、主导、推动等高风险内容时 risk 写 medium；否则 low。
-5. 不支持的 JD 能力不要硬写。
+3. 每个输入记录只要有确认事实，必须至少生成 1 条；尤其“项目经历、项目经验、实践经历、校园经历”绝不能遗漏。优先选择与 JD 最相关的内容，将同一记录中 1-3 条确认事实组织为完整 bullet，体现行动、方法或产出；每条 28-90 个中文字符。
+4. 可以把相近经历迁移到 JD 语言中，但必须用保守措辞（如“参与、协助、基于…整理、完成…材料”），不能把学习、竞赛、课程或设计基础改写成正式上线、独立负责或已有业务结果。
+5. 原事实中含数字、增长、上线、主导、推动等高风险内容时 risk 写 medium；否则 low。
+6. 不支持的 JD 能力不要硬写。
 输出：{"claims":[{"experienceId":"EXP-01","text":"...","facts":["F101"],"risk":"low"}]}`,
     JSON.stringify({ job: project.job, experiences: confirmed }),
   );

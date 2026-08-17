@@ -190,82 +190,128 @@ function inferFactType(text: string) {
   return "经历事实";
 }
 
-const SECTION_PATTERN =
-  /^(教育经历|教育背景|研究方向|工作经历|实习经历|项目经历|校园经历|实践经历|获奖经历|荣誉奖项|专业技能|技能证书|作品集|作品链接|个人作品|个人总结|自我评价)[：:]?$/;
+const SECTION_NAMES = "教育经历|教育背景|研究方向|工作经历|实习经历|项目经历|项目经验|校园经历|实践经历|社会实践|获奖经历|荣誉奖项|专业技能|技能证书|作品集|作品链接|个人作品|个人总结|自我评价|基本信息|个人信息";
+const SECTION_PATTERN = new RegExp(`^(${SECTION_NAMES})[：:]?$`);
+const INLINE_SECTION_PATTERN = new RegExp(`^(${SECTION_NAMES})[：:]?\\s*(.*)$`);
 
 const ASSET_CATEGORIES: Record<string, FactAsset["category"]> = {
   "专业技能": "技能卡", "技能证书": "技能卡", "教育经历": "教育与研究卡", "教育背景": "教育与研究卡",
   "研究方向": "教育与研究卡", "获奖经历": "获奖/证书卡", "荣誉奖项": "获奖/证书卡",
   "作品集": "作品与链接卡", "作品链接": "作品与链接卡", "个人作品": "作品与链接卡",
+  "自我评价": "技能卡", "个人总结": "技能卡",
+  "基本信息": "教育与研究卡", "个人信息": "教育与研究卡",
 };
 
-export function experiencesFromResumeText(text: string, sourceName: string): Experience[] {
-  const lines = text
-    .split(/\r?\n/)
-    .map(cleanLine)
-    .filter(Boolean);
+const EXPERIENCE_SECTIONS = new Set(["工作经历", "实习经历", "项目经历", "项目经验", "校园经历", "实践经历", "社会实践"]);
 
+function canonicalSection(category: string) {
+  if (category === "项目经验") return "项目经历";
+  if (category === "社会实践") return "实践经历";
+  return category;
+}
+
+function needsConfirmation(text: string) {
+  // Imported text is traceable to the original resume. Only claims whose boundary is
+  // materially ambiguous are sent to the user for confirmation.
+  return /\d|%|第[一二三四五六七八九十]|TOP|排名|获奖|金奖|一等奖|熟练|精通|负责|主导|独立|推动|上线|增长|提升|降低|完成.*项目|领导/i.test(text);
+}
+
+function importedStatus(text: string): FactStatus {
+  return needsConfirmation(text) ? "pending" : "confirmed";
+}
+
+function resumeSections(text: string) {
+  // PDF extraction often loses the newline around a section heading. Restore it
+  // before parsing so a project section is not swallowed by profile text.
+  const normalizedText = text.replace(new RegExp(`(${SECTION_NAMES})(?=[：:]|\\n)`, "g"), "\n$1\n");
+  const rawLines = normalizedText.split(/\r?\n/).map(cleanLine).filter(Boolean);
   const sections: Array<{ category: string; lines: string[] }> = [];
-  let current = { category: "简历经历", lines: [] as string[] };
-
-  for (const line of lines) {
+  let current = { category: "其他信息", lines: [] as string[] };
+  const push = () => {
+    const lines = current.lines.filter((line) => line.length >= 3);
+    if (lines.length) sections.push({ ...current, lines });
+  };
+  for (const rawLine of rawLines) {
+    const line = cleanLine(rawLine);
+    const inline = line.match(INLINE_SECTION_PATTERN);
+    if (inline) {
+      push();
+      current = { category: canonicalSection(inline[1]), lines: inline[2] ? [inline[2]] : [] };
+      continue;
+    }
     const heading = line.match(SECTION_PATTERN);
     if (heading) {
-      if (current.lines.length) sections.push(current);
-      current = { category: heading[1], lines: [] };
-    } else {
-      current.lines.push(line);
+      push();
+      current = { category: canonicalSection(heading[1]), lines: [] };
+      continue;
     }
+    current.lines.push(line);
   }
-  if (current.lines.length) sections.push(current);
+  push();
+  return sections;
+}
 
-  const usefulSections = sections
-    .map((section) => ({
-      ...section,
-      lines: section.lines.filter((line) => line.length >= 5),
-    }))
+function inferTitle(category: string, lines: string[], index: number) {
+  const candidate = lines.find((line) => line.length <= 45 && !/^(时间|职责|内容|描述)[：:]/.test(line));
+  if (!candidate) return `${category} ${index + 1}`;
+  // A single long paragraph is a fact, not a card title.
+  return candidate.length <= 34 ? candidate : `${category} ${index + 1}`;
+}
+
+function looksLikeExperienceTitle(line: string) {
+  return line.length >= 4
+    && line.length <= 42
+    && !/[。；;，,：:]/.test(line)
+    && !/^(负责|参与|协助|完成|使用|熟悉|掌握|获奖|时间|职责|内容|描述)/.test(line);
+}
+
+function splitExperienceSection(section: { category: string; lines: string[] }) {
+  // A project section can contain several short titles followed by descriptions.
+  // Keep them as separate cards rather than flattening them into one card.
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  section.lines.forEach((line, index) => {
+    const next = section.lines[index + 1] ?? "";
+    const startsNewBlock = looksLikeExperienceTitle(line) && (next.length >= 6 || index === section.lines.length - 1);
+    if (startsNewBlock && current.length) {
+      blocks.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  });
+  if (current.length) blocks.push(current);
+  return blocks.length > 1 ? blocks : [section.lines];
+}
+
+function categoryLooksLikeExperience(category: string, lines: string[]) {
+  if (EXPERIENCE_SECTIONS.has(category)) return true;
+  return /项目|实习|实践|课题|竞赛|系统|平台|调研|设计/.test(category) && lines.length >= 2;
+}
+
+export function experiencesFromResumeText(text: string, sourceName: string): Experience[] {
+  const usefulSections = resumeSections(text)
     .filter((section) => section.lines.length)
-    .filter((section) => !ASSET_CATEGORIES[section.category]);
+    .filter((section) => !ASSET_CATEGORIES[section.category])
+    .filter((section) => categoryLooksLikeExperience(section.category, section.lines));
 
-  if (!usefulSections.length) {
-    return [
-      {
-        id: "EXP-01",
-        title: "导入的简历内容",
-        meta: sourceName,
-        category: "简历经历",
-        facts: [
-          {
-            id: "F001",
-            text: "暂未识别到可确认的经历描述，请点击“编辑经历”补充。",
-            type: "待补充",
-            status: "pending",
-            source: sourceName,
-          },
-        ],
-        forbidden: ["不得根据缺失信息推断职责、数字、技能或结果"],
-      },
-    ];
-  }
-
-  return usefulSections.slice(0, 8).map((section, sectionIndex) => {
-    const titleCandidate = section.lines[0];
+  const blocks = usefulSections.flatMap((section) => splitExperienceSection(section).map((lines) => ({ category: section.category, lines })));
+  return blocks.slice(0, 8).map((section, sectionIndex) => {
+    const title = inferTitle(section.category, section.lines, sectionIndex);
     const factLines = section.lines
-      .slice(titleCandidate.length <= 32 ? 1 : 0)
-      .filter((line) => line.length >= 8)
+      .filter((line) => line !== title || section.lines.length === 1)
+      .filter((line) => line.length >= 6)
       .slice(0, 12);
-    const normalizedFacts = factLines.length ? factLines : section.lines.slice(0, 8);
-
     return {
       id: `EXP-${String(sectionIndex + 1).padStart(2, "0")}`,
-      title: titleCandidate.length <= 32 ? titleCandidate : `${section.category} ${sectionIndex + 1}`,
+      title,
       meta: `${section.category}｜来自 ${sourceName}`,
       category: section.category,
-      facts: normalizedFacts.map((line, factIndex) => ({
+      facts: factLines.map((line, factIndex) => ({
         id: `F${sectionIndex + 1}${String(factIndex + 1).padStart(2, "0")}`,
         text: line,
         type: inferFactType(line),
-        status: "pending" as FactStatus,
+        status: importedStatus(line),
         source: `${sourceName} · ${section.category}第 ${factIndex + 1} 条`,
       })),
       forbidden: ["不得新增原文中不存在的数字、工具、职责范围和项目结果"],
@@ -274,25 +320,25 @@ export function experiencesFromResumeText(text: string, sourceName: string): Exp
 }
 
 export function assetsFromResumeText(text: string, sourceName: string): FactAsset[] {
-  const lines = text.split(/\r?\n/).map(cleanLine).filter(Boolean);
-  const groups: Array<{ category: string; lines: string[] }> = [];
-  let category = "";
-  for (const line of lines) {
-    const heading = line.match(SECTION_PATTERN)?.[1];
-    if (heading) { category = heading; continue; }
-    if (ASSET_CATEGORIES[category] && line.length >= 3) {
-      const latest = groups.find((group) => group.category === category);
-      if (latest) latest.lines.push(line); else groups.push({ category, lines: [line] });
-    }
-  }
+  const sections = resumeSections(text);
+  const groups = sections
+    .filter((section) => ASSET_CATEGORIES[section.category])
+    .map((section) => ({ category: section.category, lines: section.lines }))
+    // Text before the first recognised heading is usually personal information.
+    .concat(sections.filter((section) => section.category === "其他信息").map((section) => ({ category: "个人信息", lines: section.lines })));
   return groups.map((group, index) => ({
     id: `AST-${String(index + 1).padStart(2, "0")}`,
     title: group.category,
     category: ASSET_CATEGORIES[group.category],
     meta: `来自 ${sourceName}`,
-    facts: group.lines.slice(0, 12).map((text, factIndex) => ({ id: `FA${index + 1}${String(factIndex + 1).padStart(2, "0")}`, text, type: inferFactType(text), status: "pending" as FactStatus, source: `${sourceName} · ${group.category}` })),
+    // Contact details, age and other identity data are deliberately not made into
+    // resume claims. They remain in the original local file, not the fact library.
+    facts: group.lines
+      .filter((text) => !/电话|手机|邮箱|微信|身份证|\b\d{11}\b|@/.test(text))
+      .slice(0, 12)
+      .map((text, factIndex) => ({ id: `FA${index + 1}${String(factIndex + 1).padStart(2, "0")}`, text, type: inferFactType(text), status: importedStatus(text), source: `${sourceName} · ${group.category}` })),
     forbidden: ["不得新增原文中不存在的技能等级、证书状态或奖项影响力"],
-  }));
+  })).filter((asset) => asset.facts.length);
 }
 
 export function createPersonalProject(
@@ -370,19 +416,27 @@ export function generateGroundedResume(project: GroundedProject): GeneratedResum
       return score(right) - score(left);
     });
 
-  const claims: ResumeClaim[] = confirmedExperiences.flatMap(({ experience, facts }, experienceIndex) =>
-    facts.slice(0, 4).map((fact, factIndex) => ({
+  const claims: ResumeClaim[] = confirmedExperiences.flatMap(({ experience, facts }, experienceIndex) => {
+    // Keep complete records visible: group facts in pairs instead of rendering a
+    // sparse one-fact-per-line draft. The connector only joins already-confirmed
+    // facts and introduces no new outcome, tool, responsibility or number.
+    const groups = facts.slice(0, 6).reduce<Fact[][]>((items, fact, index) => {
+      const groupIndex = Math.floor(index / 3);
+      (items[groupIndex] ??= []).push(fact);
+      return items;
+    }, []);
+    return groups.map((group, factIndex) => ({
       id: `C${String(experienceIndex + 1).padStart(2, "0")}${factIndex + 1}`,
       experienceId: experience.id,
       experienceTitle: experience.title,
       experienceMeta: experience.meta,
       section: resumeSection(experience.category),
-      text: fact.text,
-      facts: [fact.id],
-      jd: matchingJdIds(fact.text, project.job),
-      risk: /\d|%|提升|推动|主导|上线/.test(fact.text) ? "medium" : "low",
-    })),
-  );
+      text: group.map((fact) => fact.text.replace(/[。；;]+$/, "")).join("；"),
+      facts: group.map((fact) => fact.id),
+      jd: [...new Set(group.flatMap((fact) => matchingJdIds(fact.text, project.job)))],
+      risk: group.some((fact) => /\d|%|提升|推动|主导|上线/.test(fact.text)) ? "medium" : "low",
+    }));
+  });
 
   return {
     generatedAt: new Date().toISOString(),
