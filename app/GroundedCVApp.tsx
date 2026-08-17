@@ -385,6 +385,19 @@ export default function GroundedCVApp() {
   );
 }
 
+const SEMANTIC_MATCHERS = [
+  { pattern: /需求调研|用户研究|需求分析|用户需求/, terms: ["访谈", "调研", "评价", "评论", "用户画像", "需求池", "公开内容", "分析"], expression: "开展需求调研并整理高频问题", followUp: "你如何收集、筛选并归类这些用户反馈？" },
+  { pattern: /竞品|趋势|行业动态/, terms: ["竞品", "行业", "趋势", "公开内容", "平台", "案例", "分析"], expression: "基于公开信息开展案例与内容分析", followUp: "你是否形成过竞品对比维度或趋势结论？" },
+  { pattern: /产品方案|功能设计|原型|产品设计/, terms: ["原型", "功能模块", "产品模式", "设计", "方案", "需求池"], expression: "基于需求完成产品方案或功能模块设计", followUp: "你的方案如何从需求进一步落到流程、原型或模块？" },
+  { pattern: /业务流程|流程梳理|流程优化/, terms: ["用户旅程", "流程", "需求池", "优先级", "梳理"], expression: "梳理用户旅程与需求优先级", followUp: "该流程是用户侧还是内部业务侧？是否有前后对比证据？" },
+  { pattern: /AI提效|AI工具|人工智能/, terms: ["AI", "LLM", "Agent", "ChatGPT", "Gemini", "Codex", "概念验证"], expression: "探索生成式 AI 工具在相关场景中的辅助方式", followUp: "你实际验证过哪个 AI 场景，输入、输出和效果分别是什么？" },
+  { pattern: /需求文档|PRD|文档撰写|报告/, terms: ["报告", "需求池", "评审", "用户旅程", "文档"], expression: "整理需求分析材料并沉淀为项目交付物", followUp: "是否有可展示的 PRD、分析报告或评审材料？" },
+  { pattern: /协调|协作|研发|跨部门/, terms: ["协调", "评审", "团队", "政府", "专家", "业务单位"], expression: "协调多方角色完成需求评审与方案讨论", followUp: "你在协作中负责的具体接口、节奏或产出是什么？" },
+  { pattern: /用户反馈|数据|迭代|优化|测试/, terms: ["评价", "反馈", "测试", "验证", "优化", "热力图"], expression: "收集公开反馈并参与概念或功能验证", followUp: "反馈如何影响后续的方案调整？是否有版本记录？" },
+  { pattern: /LLM|Prompt|Agent|Skill/, terms: ["LLM", "Agent", "ChatGPT", "Gemini", "Codex", "研究方向"], expression: "关注 LLM 与 Agent 相关研究方向，并使用生成式 AI 工具辅助概念验证", followUp: "你对相关概念的理解是否能结合一个具体项目说明？" },
+  { pattern: /Vibe Coding|Codex|Claude|AI编程|Demo/, terms: ["Codex", "Python", "原型", "Demo", "AI"], expression: "具备 Python 基础并完成过可演示原型", followUp: "是否实际使用过 AI 编程工具完成可运行 Demo？若有，请补充链接或代码。" },
+];
+
 function deriveRequirements(job: JobTarget, experiences: Array<Experience | FactAsset>) {
   if (!job.description.trim()) return [];
   const allFacts = experiences.flatMap((experience) => experience.facts);
@@ -396,14 +409,9 @@ function deriveRequirements(job: JobTarget, experiences: Array<Experience | Fact
     .filter((part, index, items) => items.indexOf(part) === index)
     .slice(0, 12);
 
-  const keywords = [
-    "需求调研", "竞品分析", "产品方案", "业务流程", "AI提效", "需求文档",
-    "产品开发", "协调研发", "推动上线", "用户反馈", "使用数据", "迭代优化",
-    "趋势分析", "LLM", "Prompt", "Agent", "Skill", "Codex", "Claude", "Vibe Coding",
-  ];
-
   return requirementTexts.map((text, index) => {
-    const terms = keywords.filter((keyword) => text.toLowerCase().includes(keyword.toLowerCase()));
+    const matcher = SEMANTIC_MATCHERS.find((item) => item.pattern.test(text));
+    const terms = matcher?.terms ?? [];
     const fallbackTerms = text
       .replace(/[、，,：:（）()]/g, " ")
       .split(/\s+/)
@@ -416,9 +424,12 @@ function deriveRequirements(job: JobTarget, experiences: Array<Experience | Fact
         matchTerms.some((term) => fact.text.toLowerCase().includes(term.toLowerCase())),
     );
     const confirmedMatches = matchedFacts.filter((fact) => fact.status === "confirmed");
+    const directMatch = confirmedMatches.some((fact) => text.split(/[、，,：:（）()]/).some((piece) => piece.length >= 3 && fact.text.includes(piece)));
     const level =
-      confirmedMatches.length >= 1
+      confirmedMatches.length >= 1 && directMatch
         ? "covered"
+        : confirmedMatches.length >= 1 && matcher
+          ? "transferable"
         : matchedFacts.length >= 1
           ? "partial"
           : "missing";
@@ -430,10 +441,14 @@ function deriveRequirements(job: JobTarget, experiences: Array<Experience | Fact
       facts: matchedFacts.length ? matchedFacts.slice(0, 3).map((fact) => fact.id).join(" · ") : "暂无事实",
       reason:
         level === "covered"
-          ? "已找到确认事实，后续将建立逐句来源"
-          : level === "partial"
-            ? "存在相关事实，但尚未完成用户确认"
-            : "当前事实库没有直接证据，不会强行写入简历",
+          ? "已找到与岗位要求直接对应的确认事实，可作为核心证据。"
+          : level === "transferable"
+            ? "存在方法或能力相近的确认事实，但业务场景不同，建议使用保守表达。"
+            : level === "partial"
+              ? "存在相关材料，但尚未完成事实确认或缺少关键证据。"
+              : "当前事实库没有可用证据，不会强行写入简历。",
+      safeExpression: level === "missing" ? "" : matcher?.expression ?? "基于确认事实进行保守表达",
+      followUp: level === "partial" || level === "transferable" ? matcher?.followUp ?? "你能补充这项能力对应的具体行动或产出吗？" : "",
     };
   });
 }
