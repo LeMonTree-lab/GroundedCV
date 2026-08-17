@@ -72,6 +72,37 @@ const RISKS = [
 
 type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium" | "low"; type: string; phrase: string; reason: string; suggestion: string; sourceFacts: Fact[] };
 
+/**
+ * A risk suggestion must be a real rewrite, not merely a copy of the current
+ * claim.  Rule-based weakening is deliberately conservative: it only reduces
+ * the strength of an existing verb and never introduces a new outcome/tool.
+ */
+function softenClaimText(text: string, sourceFacts: Fact[]) {
+  const replacements: Array<[RegExp, string]> = [
+    [/收集并分析/g, "收集并整理"],
+    [/分析(?=.{0,18}(评价|内容|数据))/g, "整理"],
+    [/提炼/g, "梳理"],
+    [/建立/g, "协助建立"],
+    [/完成(?=(产品原型|原型设计))/g, "进行"],
+    [/设计(?=(灵感仓|逻辑仓|共生仓|\d+ 类))/g, "参与设计"],
+    [/使用 Figma 完成/g, "使用 Figma 进行"],
+    [/研究方向涉及/g, "关注"],
+    [/具备/g, "了解"],
+    [/获得/g, "曾获"],
+    [/推动/g, "参与"],
+    [/提升/g, "支持优化"],
+    [/主导/g, "参与"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    const next = text.replace(pattern, replacement);
+    if (next !== text) return next;
+  }
+  const source = sourceFacts[0]?.text;
+  // This keeps the fall-back factual and visibly more modest even for a
+  // sentence whose wording cannot be safely transformed by a rule.
+  return source && source !== text ? `参与相关工作：${source}` : `参与相关工作：${text}`;
+}
+
 function inspectResume(project: GroundedProject): LiveRisk[] {
   const claims = project.resume?.claims ?? [];
   const facts = [...project.experiences, ...(project.assets ?? [])].flatMap((record) => record.facts);
@@ -83,8 +114,8 @@ function inspectResume(project: GroundedProject): LiveRisk[] {
     const newNumber = numbers.find((number) => !sourceText.includes(number));
     if (newNumber) return { id: `R${index + 1}`, claim, severity: "high", type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: sourceText, sourceFacts: sources };
     if (risky && !sourceText.includes(risky)) return { id: `R${index + 1}`, claim, severity: "high", type: "表达强度升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任或结果强度。`, suggestion: sourceText, sourceFacts: sources };
-    if (/\d|%|万|千|百/.test(sourceText)) return { id: `R${index + 1}`, claim, severity: "medium", type: "数字 / 结果待核实", phrase: sourceText.match(/\d+(?:[+.%万千])?/)?.[0] ?? "结果", reason: "该表述引用了已确认的数字或结果；投递前仍建议核对统计口径和个人贡献边界。", suggestion: claim.text, sourceFacts: sources };
-    return { id: `R${index + 1}`, claim, severity: "low", type: "来源完整", phrase: "确认事实", reason: "当前句子已绑定确认事实，未发现规则可识别的新增数字或责任升级。", suggestion: claim.text, sourceFacts: sources };
+    if (/\d|%|万|千|百/.test(sourceText)) return { id: `R${index + 1}`, claim, severity: "medium", type: "数字 / 结果待核实", phrase: sourceText.match(/\d+(?:[+.%万千])?/)?.[0] ?? "结果", reason: "该表述引用了已确认的数字或结果；投递前仍建议核对统计口径和个人贡献边界。", suggestion: softenClaimText(claim.text, sources), sourceFacts: sources };
+    return { id: `R${index + 1}`, claim, severity: "low", type: "来源完整", phrase: "确认事实", reason: "当前句子已绑定确认事实，未发现规则可识别的新增数字或责任升级。若你希望进一步保守表达，可选择弱化版本。", suggestion: softenClaimText(claim.text, sources), sourceFacts: sources };
   });
 }
 
@@ -807,7 +838,14 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
   const interviews = project.resume?.interviewResponses ?? [];
   const finalClaims = project.resume?.claims ?? [];
   const sectionOrder: ResumeClaim["section"][] = ["工作经历", "项目经历", "教育与研究", "技能", "奖项/证书", "作品与链接", "其他经历"];
-  const finalSections = sectionOrder.map((section) => ({ section, claims: finalClaims.filter((claim) => claim.section === section) })).filter((item) => item.claims.length);
+  const finalSections = sectionOrder.map((section) => ({
+    section,
+    entries: Array.from(new Map(finalClaims.filter((claim) => claim.section === section).map((claim) => [claim.experienceId, {
+      title: claim.experienceTitle,
+      meta: claim.experienceMeta,
+      claims: finalClaims.filter((item) => item.section === section && item.experienceId === claim.experienceId),
+    }])).values()),
+  })).filter((item) => item.entries.length);
   const traceability = project.resume?.claims.length
     ? Math.round((project.resume.claims.filter((claim) => claim.facts.length > 0).length / project.resume.claims.length) * 100)
     : 0;
@@ -815,7 +853,10 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
     const content = [
       `${project.candidateName}｜${project.resume?.targetTitle ?? project.job.title}`,
       project.job.company ? `目标公司：${project.job.company}` : "",
-      ...finalSections.flatMap(({ section, claims }) => [`\n${section}`, ...claims.map((claim) => `- ${claim.text}`)]),
+      ...finalSections.flatMap(({ section, entries }) => [
+        `\n${section}`,
+        ...entries.flatMap((entry) => [`${entry.title}${entry.meta ? `｜${entry.meta}` : ""}`, ...entry.claims.map((claim) => `- ${claim.text}`)]),
+      ]),
     ].filter(Boolean).join("\n");
     navigator.clipboard?.writeText(content);
     setCopied(true);
@@ -827,7 +868,7 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
       <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>{traceability}%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{interviews.length}</strong><span>已完成追问</span></div></div>
       <section className="final-resume-preview">
         <div className="final-resume-head"><div><span className="card-category">FINAL RESUME · 已应用本轮修改</span><h2>{project.candidateName}</h2><p>{project.resume?.targetTitle ?? project.job.title}{project.job.company ? ` · ${project.job.company}` : ""}</p></div><span>{finalClaims.length} 条最终 Claim</span></div>
-        {finalSections.length ? finalSections.map(({ section, claims }) => <section className="final-resume-section" key={section}><h3>{section}</h3>{claims.map((claim) => <p key={claim.id}><i />{claim.text}<code>{claim.id}</code></p>)}</section>) : <p className="detail-copy">所有 Claim 均被删除。请返回“反向修改”保留至少一条可确认的经历表述。</p>}
+        {finalSections.length ? finalSections.map(({ section, entries }) => <section className="final-resume-section" key={section}><h3>{section}</h3>{entries.map((entry) => <div className="final-resume-entry" key={`${section}-${entry.title}`}><div className="final-entry-head"><strong>{entry.title}</strong>{entry.meta && <small>{entry.meta}</small>}</div>{entry.claims.map((claim) => <p key={claim.id}><i />{claim.text}<code>{claim.id}</code></p>)}</div>)}</section>) : <p className="detail-copy">所有 Claim 均被删除。请返回“反向修改”保留至少一条可确认的经历表述。</p>}
       </section>
       <div className="report-grid">
         <section className="report-section"><span className="card-category">修改记录</span><h2>本次项目实际做了什么改变</h2>{revisions.length ? revisions.map((revision) => <div className="change-row" key={revision.id}><span>{revision.action === "weaken" ? "弱化" : revision.action === "delete" ? "未写入" : "保留"}</span><p>{revision.action === "weaken" && <><del>{revision.beforeText}</del><br /><ins>{revision.afterText}</ins></>}{revision.action === "delete" && <del>{revision.beforeText}</del>}{revision.action === "keep" && revision.beforeText}</p></div>) : <p className="detail-copy">尚未处理任何风险 Claim。返回“反向修改”后，选择保留、弱化或删除。</p>}</section>
