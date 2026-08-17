@@ -419,6 +419,21 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .level strong, .level small { display: block; }.level strong { font-size: 11px; }.level small { margin-top: 3px; color: #929b96; font-size: 9px; }
 .level.active > span { color: white; background: var(--green); }.level.done > span { color: var(--green); background: var(--green-soft); }
 .question-stage { padding: 38px; }
+.interview-trace-card { margin-bottom: 26px; padding: 14px; background: #f6faf7; border: 1px solid #c7e2d5; border-radius: 9px; }
+.interview-trace-head { display: flex; gap: 8px; align-items: center; color: var(--green-dark); font-size: 10px; font-weight: 800; }
+.interview-trace-head code { padding: 3px 5px; color: var(--green); background: white; border: 1px solid #c7e2d5; border-radius: 4px; font: 700 9px ui-monospace, monospace; }
+.interview-trace-head b { padding: 3px 6px; color: #8b6630; background: #fff5df; border-radius: 4px; font-size: 9px; }
+.interview-trace-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+.interview-trace-grid > div, .interview-fact-sources { min-width: 0; }
+.interview-trace-card small { display: block; color: #728078; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.interview-trace-card p { margin: 5px 0 0; color: #506057; font-size: 10px; line-height: 1.65; }
+.interview-trace-card mark { display: inline-block; margin-top: 5px; padding: 3px 5px; color: #8d6129; background: #fff0cf; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.interview-fact-sources { margin-top: 13px; padding-top: 11px; border-top: 1px solid #d8e9df; }
+.interview-fact-sources ul { display: grid; gap: 6px; margin: 7px 0 0; padding: 0; list-style: none; }
+.interview-fact-sources li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px; align-items: baseline; padding: 7px 8px; background: white; border-radius: 5px; }
+.interview-fact-sources code { color: var(--green); font: 700 9px ui-monospace, monospace; }
+.interview-fact-sources li span { color: #516158; font-size: 10px; line-height: 1.5; }
+.interview-fact-sources em { color: #89958e; font-size: 8px; font-style: normal; white-space: nowrap; }
 .question-meta { display: flex; align-items: center; gap: 10px; }
 .question-meta > span { padding: 7px 9px; color: var(--green); background: var(--green-soft); border-radius: 6px; font: 700 10px ui-monospace, monospace; }
 .question-meta p { margin: 0; color: var(--muted); font-size: 9px; }.question-meta strong { display: block; color: var(--ink); font-size: 11px; }
@@ -476,6 +491,9 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
   .resume-workspace { grid-template-columns: 1fr; }
   .claim-source { position: static; }
   .risk-layout { grid-template-columns: 1fr; }
+  .interview-trace-grid { grid-template-columns: 1fr; gap: 10px; }
+  .interview-fact-sources li { grid-template-columns: auto 1fr; }
+  .interview-fact-sources em { grid-column: 2; white-space: normal; }
 }
 
 @media (max-width: 760px) {

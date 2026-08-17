@@ -9,6 +9,7 @@ import {
   generateGroundedResume,
   type Experience,
   type FactAsset,
+  type Fact,
   type FactStatus,
   type GroundedProject,
   type InterviewResponse,
@@ -69,7 +70,7 @@ const RISKS = [
   { id: "R03", claim: "C04", severity: "low", type: "工具边界", phrase: "使用 Gemini、ChatGPT 完成概念验证", reason: "工具使用事实尚未再次确认，但未推断模型训练或生产级 Agent 能力。", suggestion: "使用多种生成式 AI 工具辅助概念验证与视觉设计。" },
 ];
 
-type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium" | "low"; type: string; phrase: string; reason: string; suggestion: string };
+type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium" | "low"; type: string; phrase: string; reason: string; suggestion: string; sourceFacts: Fact[] };
 
 function inspectResume(project: GroundedProject): LiveRisk[] {
   const claims = project.resume?.claims ?? [];
@@ -80,10 +81,10 @@ function inspectResume(project: GroundedProject): LiveRisk[] {
     const risky = claim.text.match(/主导|推动|提升|增长|上线|独立负责|显著/g)?.[0];
     const numbers = claim.text.match(/\d+(?:[+.%万千])?/g) ?? [];
     const newNumber = numbers.find((number) => !sourceText.includes(number));
-    if (newNumber) return { id: `R${index + 1}`, claim, severity: "high", type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: sourceText };
-    if (risky && !sourceText.includes(risky)) return { id: `R${index + 1}`, claim, severity: "high", type: "表达强度升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任或结果强度。`, suggestion: sourceText };
-    if (/\d|%|万|千|百/.test(sourceText)) return { id: `R${index + 1}`, claim, severity: "medium", type: "数字 / 结果待核实", phrase: sourceText.match(/\d+(?:[+.%万千])?/)?.[0] ?? "结果", reason: "该表述引用了已确认的数字或结果；投递前仍建议核对统计口径和个人贡献边界。", suggestion: claim.text };
-    return { id: `R${index + 1}`, claim, severity: "low", type: "来源完整", phrase: "确认事实", reason: "当前句子已绑定确认事实，未发现规则可识别的新增数字或责任升级。", suggestion: claim.text };
+    if (newNumber) return { id: `R${index + 1}`, claim, severity: "high", type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: sourceText, sourceFacts: sources };
+    if (risky && !sourceText.includes(risky)) return { id: `R${index + 1}`, claim, severity: "high", type: "表达强度升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任或结果强度。`, suggestion: sourceText, sourceFacts: sources };
+    if (/\d|%|万|千|百/.test(sourceText)) return { id: `R${index + 1}`, claim, severity: "medium", type: "数字 / 结果待核实", phrase: sourceText.match(/\d+(?:[+.%万千])?/)?.[0] ?? "结果", reason: "该表述引用了已确认的数字或结果；投递前仍建议核对统计口径和个人贡献边界。", suggestion: claim.text, sourceFacts: sources };
+    return { id: `R${index + 1}`, claim, severity: "low", type: "来源完整", phrase: "确认事实", reason: "当前句子已绑定确认事实，未发现规则可识别的新增数字或责任升级。", suggestion: claim.text, sourceFacts: sources };
   });
 }
 
@@ -693,10 +694,11 @@ function RiskCenter({ risks, onSelectRisk, onNext }: { risks: LiveRisk[]; onSele
 
 function InterviewTest({ risk: target, response, onSave, onNext }: { risk?: LiveRisk; response?: InterviewResponse; onSave: (response: InterviewResponse) => void; onNext: () => void }) {
   if (!target) return <EmptyStage title="先生成当前项目的简历" copy="面试追问会围绕当前 Claim 的风险点生成。" />;
+  const challengedExpression = target.phrase === "确认事实" || target.phrase === "结果" ? "这条简历表述" : `“${target.phrase}”`;
   const questions = [
     { level: "L1", title: "事实确认", question: `“${target.phrase}”在这段经历中具体指什么？请说明你亲自完成的行动。`, hint: "验证事实范围，避免把团队过程归因于个人。" },
     { level: "L2", title: "方法验证", question: `你使用了什么方法或产物来支撑“${target.claim.text}”？`, hint: "验证行动、方法与产出能否形成完整证据链。" },
-    { level: "L3", title: "结论挑战", question: `该结果与个人工作之间有什么直接证据？哪些部分应改为团队或项目结果？`, hint: "挑战过强因果，判断是否需要弱化。" },
+    { level: "L3", title: "结论挑战", question: `针对${challengedExpression}，它与个人工作之间有什么直接证据？哪些部分应改为团队或项目结果？`, hint: "挑战过强因果，判断是否需要弱化。" },
   ];
   const [level, setLevel] = useState(0);
   const [answers, setAnswers] = useState(() => response?.answers ?? ["", "", ""]);
@@ -725,6 +727,14 @@ function InterviewTest({ risk: target, response, onSave, onNext }: { risk?: Live
         </aside>
         <section className="question-stage">
           {!evaluated ? <>
+            <section className="interview-trace-card" aria-label="本轮追问来源">
+              <div className="interview-trace-head"><span>本轮追问来源</span><code>{target.id}</code><b>{target.type}</b></div>
+              <div className="interview-trace-grid">
+                <div><small>正在追问的简历原句</small><p>{target.claim.text}</p></div>
+                <div><small>本轮风险点</small><mark>{target.phrase}</mark><p>{target.reason}</p></div>
+              </div>
+              <div className="interview-fact-sources"><small>关联事实来源</small>{target.sourceFacts.length ? <ul>{target.sourceFacts.map((fact) => <li key={fact.id}><code>{fact.id}</code><span>{fact.text}</span><em>{fact.source}</em></li>)}</ul> : <p>该简历原句尚未绑定事实；这是本轮追问的风险来源。</p>}</div>
+            </section>
             <div className="question-meta"><span>{question.level}</span><p><strong>{question.title}</strong>问题 {level + 1} / 3</p></div>
             <h2>{question.question}</h2>
             <div className="question-hint"><span>为何追问</span>{question.hint}</div>
