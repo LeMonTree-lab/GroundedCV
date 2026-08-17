@@ -572,7 +572,7 @@ function ResumeStudio({
   const resume = project.resume;
   const activeClaim = resume?.claims.find((claim) => claim.id === selectedClaim) ?? resume?.claims[0];
   const sourceFacts = [...project.experiences, ...(project.assets ?? [])].flatMap((record) => record.facts);
-  const sections: ResumeClaim["section"][] = ["工作经历", "项目经历", "其他经历"];
+  const sections: ResumeClaim["section"][] = ["工作经历", "项目经历", "教育与研究", "技能", "奖项/证书", "作品与链接", "其他经历"];
   const canInspect = Boolean(resume?.claims.length);
 
   async function generateWithAi() {
@@ -939,7 +939,7 @@ function AssetLibrary({
   const [editing, setEditing] = useState<FactAsset | "new" | null>(null);
   return <section className="asset-library">
     <div className="asset-library-head">
-      <div><span className="eyebrow">FACT ASSET LIBRARY</span><h2>其他事实资产</h2><p>技能、教育与研究、奖项证书、作品与链接也会参与 JD 匹配，并可成为简历中“其他经历”的事实来源。</p></div>
+      <div><span className="eyebrow">FACT ASSET LIBRARY</span><h2>其他事实资产</h2><p>技能、教育与研究、奖项证书、作品与链接会参与 JD 匹配，并分别进入简历的对应栏目，不会被混入“其他经历”。</p></div>
       <button type="button" className="ghost-button" onClick={() => setEditing("new")}>＋ 添加事实资产</button>
     </div>
     <div className="asset-grid">

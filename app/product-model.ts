@@ -48,7 +48,7 @@ export type ResumeClaim = {
   experienceId: string;
   experienceTitle: string;
   experienceMeta: string;
-  section: "工作经历" | "项目经历" | "其他经历";
+  section: "工作经历" | "项目经历" | "教育与研究" | "技能" | "奖项/证书" | "作品与链接" | "其他经历";
   text: string;
   facts: string[];
   jd: string[];
@@ -331,9 +331,13 @@ const MATCH_TERMS = [
   "协作", "协调", "评审", "迭代", "测试", "上线", "竞品", "运营",
 ];
 
-function resumeSection(category: string): ResumeClaim["section"] {
+export function resumeSection(category: string): ResumeClaim["section"] {
   if (/工作|实习/.test(category)) return "工作经历";
   if (/项目|实践|校园/.test(category)) return "项目经历";
+  if (category === "技能卡") return "技能";
+  if (category === "教育与研究卡") return "教育与研究";
+  if (category === "获奖/证书卡") return "奖项/证书";
+  if (category === "作品与链接卡") return "作品与链接";
   return "其他经历";
 }
 

@@ -1,4 +1,4 @@
-import type { Experience, Fact, FactAsset, GroundedProject, ResumeClaim, SemanticJobRequirement } from "./product-model";
+import { resumeSection, type Experience, type Fact, type FactAsset, type GroundedProject, type ResumeClaim, type SemanticJobRequirement } from "./product-model";
 
 export type AiSettings = {
   apiKey: string;
@@ -133,7 +133,7 @@ export async function rewriteResumeWithAi(settings: AiSettings, project: Grounde
     const text = String(item.text ?? "").trim();
     const facts = [...new Set((item.facts ?? []).filter((id) => experience?.facts.some((fact) => fact.id === id && fact.status === "confirmed")))];
     if (!experience || text.length < 8 || !facts.length) return [];
-    const section = /工作|实习/.test(experience.category) ? "工作经历" : /项目|实践|校园/.test(experience.category) ? "项目经历" : "其他经历";
+    const section = resumeSection(experience.category);
     const sourceText = facts.map((id) => experience.facts.find((fact) => fact.id === id)?.text ?? "").join(" ");
     return [{
       id: `AI${String(index + 1).padStart(2, "0")}`,

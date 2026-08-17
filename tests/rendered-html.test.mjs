@@ -84,6 +84,8 @@ test("treats skills and credentials as traceable fact assets", async () => {
   const model = await readFile(new URL("../app/product-model.ts", import.meta.url), "utf8");
   for (const label of ["技能卡", "教育与研究卡", "获奖/证书卡", "作品与链接卡"]) assert.match(model, new RegExp(label));
   assert.match(model, /assetsFromResumeText/);
+  assert.match(model, /"教育与研究" \| "技能" \| "奖项\/证书" \| "作品与链接"/);
+  assert.match(model, /category === "技能卡"/);
   assert.match(app, /其他事实资产/);
   assert.match(app, /\.\.\.assets/);
 });
