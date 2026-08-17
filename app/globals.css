@@ -418,6 +418,11 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .level > span { display: grid; place-items: center; width: 28px; height: 28px; color: #88928d; background: #edf0ee; border-radius: 50%; font: 700 9px ui-monospace, monospace; }
 .level strong, .level small { display: block; }.level strong { font-size: 11px; }.level small { margin-top: 3px; color: #929b96; font-size: 9px; }
 .level.active > span { color: white; background: var(--green); }.level.done > span { color: var(--green); background: var(--green-soft); }
+.risk-queue { display: grid; gap: 5px; margin: 16px 0; max-height: 220px; overflow: auto; }
+.risk-queue button { display: grid; grid-template-columns: 25px 1fr; gap: 7px; align-items: center; padding: 8px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.risk-queue button:hover, .risk-queue button.active { background: #f3f8f5; border-color: #c5dfd2; }
+.risk-queue button > span { display: grid; place-items: center; width: 22px; height: 22px; color: #7b8881; background: #edf0ee; border-radius: 50%; font-size: 8px; font-weight: 800; }.risk-queue button.active > span { color: white; background: var(--green); }
+.risk-queue strong, .risk-queue small { display: block; }.risk-queue strong { font-size: 9px; }.risk-queue small { margin-top: 2px; color: #87928b; font-size: 8px; }
 .question-stage { padding: 38px; }
 .interview-trace-card { margin-bottom: 26px; padding: 14px; background: #f6faf7; border: 1px solid #c7e2d5; border-radius: 9px; }
 .interview-trace-head { display: flex; gap: 8px; align-items: center; color: var(--green-dark); font-size: 10px; font-weight: 800; }
@@ -461,10 +466,19 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
 .revision-option.active.recommended { background: #f0f8f4; border: 2px solid var(--green); }.revision-option.active.risky { background: #fff7f5; border-color: var(--red); }
 .revision-option > span { color: var(--green); font-size: 9px; font-weight: 800; }.revision-option > strong { margin-top: 10px; font-size: 13px; }.revision-option p { color: var(--muted); font-size: 10px; line-height: 1.65; }.revision-option b { margin-top: auto; color: #75817a; font-size: 9px; }
 .revision-result { margin-top: 20px; padding: 20px; background: #12251e; border-radius: 9px; color: white; }.revision-result > span { color: #7edbb6; font-size: 9px; font-weight: 700; }.revision-result p { margin: 9px 0 16px; font: 600 16px/1.6 Georgia, "Songti SC", serif; }.revision-result > div { display: flex; justify-content: space-between; color: #91a69c; font-size: 9px; }.revision-result strong { color: #77dcb5; }
+.batch-revision-list { display: grid; gap: 14px; }
+.batch-revision-card { padding: 20px; background: white; border: 1px solid var(--line); border-radius: 11px; }
+.batch-revision-head { display: flex; align-items: center; gap: 8px; }.batch-revision-head code { color: var(--green); font-size: 9px; }.batch-revision-head strong { margin-left: auto; color: #728078; font-size: 10px; }
+.batch-before { margin: 14px 0; color: #334139; font-size: 12px; line-height: 1.7; }
+.batch-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.batch-choices button { min-height: 82px; padding: 12px; text-align: left; background: white; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }.batch-choices button:hover, .batch-choices button.active { border-color: #81bba3; box-shadow: 0 4px 14px rgba(25,41,34,.05); }.batch-choices button.active.recommended { background: #eff8f3; border: 2px solid var(--green); }.batch-choices button.active.risky { background: #fff7f5; border-color: #d48b7f; }
+.batch-choices strong, .batch-choices small { display: block; }.batch-choices strong { font-size: 10px; }.batch-choices small { margin-top: 6px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 
 .report-hero { padding: 38px; color: white; background: #10261e; border-radius: 14px; }.report-hero .eyebrow { color: #74ddb4; }.report-hero h1 { margin-top: 10px; }.report-hero p { max-width: 720px; color: #a8bab2; font-size: 12px; }.report-hero > div { display: flex; gap: 9px; margin-top: 24px; }.report-hero .ghost-button { color: #dce9e3; background: transparent; border-color: #3b5148; }
 .report-metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin: 20px 0; background: white; border: 1px solid var(--line); border-radius: 11px; }.report-metrics div { padding: 20px; border-right: 1px solid var(--line); }.report-metrics div:last-child { border-right: 0; }.report-metrics strong, .report-metrics span { display: block; }.report-metrics strong { color: var(--green); font: 600 24px Georgia, serif; }.report-metrics span { margin-top: 3px; color: var(--muted); font-size: 9px; }
 .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }.report-section { padding: 24px; background: white; border: 1px solid var(--line); border-radius: 11px; }.report-section h2 { margin: 0 0 18px; font: 600 20px Georgia, "Songti SC", serif; }.change-row { display: grid; grid-template-columns: 60px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }.change-row > span { color: var(--green); font-size: 9px; font-weight: 800; }.change-row p { margin: 0; color: #5f6b65; font-size: 10px; line-height: 1.7; }.change-row del { color: var(--red); }.change-row ins { color: var(--green); text-decoration: none; }
+.final-resume-preview { margin: 20px 0; padding: 32px; background: white; border: 1px solid var(--line); border-radius: 12px; }.final-resume-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; padding-bottom: 20px; border-bottom: 2px solid #1a2b23; }.final-resume-head h2 { margin: 8px 0 0; font: 600 32px Georgia, "Songti SC", serif; }.final-resume-head p { margin: 6px 0 0; color: var(--green); font-size: 12px; }.final-resume-head > span { color: #77837c; font-size: 10px; }
+.final-resume-section { padding: 18px 0; border-bottom: 1px solid var(--line); }.final-resume-section:last-child { border-bottom: 0; }.final-resume-section h3 { margin: 0 0 11px; font-size: 14px; }.final-resume-section p { position: relative; margin: 8px 0; padding: 0 42px 0 16px; color: #435047; font-size: 11px; line-height: 1.75; }.final-resume-section i { position: absolute; left: 0; top: .8em; width: 6px; height: 6px; background: var(--green); border-radius: 50%; }.final-resume-section code { position: absolute; right: 0; top: 0; color: var(--green); font: 700 9px ui-monospace, monospace; }
 .report-section ol { margin: 0; padding-left: 20px; color: #59645f; font-size: 10px; line-height: 2.1; }.final-note { margin-top: 18px; padding: 14px; background: var(--green-soft); border-radius: 7px; }.final-note strong { color: var(--green-dark); font-size: 10px; }.final-note p { margin: 5px 0 0; color: #567064; font-size: 9px; line-height: 1.6; }
 
 .placeholder-page { padding-top: 80px; }
@@ -547,8 +561,9 @@ h1 { max-width: 720px; margin: 8px 0 9px; font-family: Georgia, "Songti SC", ser
   .scan-note { grid-column: 1 / -1; }
   .interview-layout { grid-template-columns: 1fr; }
   .question-rail, .question-stage { min-height: auto; }
-  .revision-options, .report-grid { grid-template-columns: 1fr; }
+  .revision-options, .batch-choices, .report-grid { grid-template-columns: 1fr; }
   .report-metrics { grid-template-columns: repeat(2, 1fr); }
+  .final-resume-preview { padding: 22px 18px; }.final-resume-head { display: block; }.final-resume-head > span { display: block; margin-top: 10px; }
   .modal-backdrop { padding: 12px; }
   .experience-modal { max-height: calc(100vh - 24px); padding: 19px; }
   .modal-grid { grid-template-columns: 1fr; }
