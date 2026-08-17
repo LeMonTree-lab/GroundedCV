@@ -11,6 +11,8 @@ import {
   type FactAsset,
   type FactStatus,
   type GroundedProject,
+  type InterviewResponse,
+  type ClaimRevision,
   type JobTarget,
   type ResumeClaim,
   type SemanticJobRequirement,
@@ -92,6 +94,7 @@ export default function GroundedCVApp() {
   const [hydrated, setHydrated] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [selectedExperience, setSelectedExperience] = useState("EXP-02");
+  const [selectedRiskId, setSelectedRiskId] = useState("");
   const [notice, setNotice] = useState("");
   const [aiSettings, setAiSettings] = useState<AiSettings>({ apiKey: "", model: "deepseek-v4-flash" });
   const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
@@ -123,6 +126,60 @@ export default function GroundedCVApp() {
   const pending = facts.filter((fact) => fact.status === "pending").length;
   const currentExperience = (experiences.find((item) => item.id === selectedExperience) ?? experiences[0])!;
   const liveRisks = useMemo(() => inspectResume(project), [project]);
+
+  const selectedRisk = liveRisks.find((item) => item.id === selectedRiskId)
+    ?? liveRisks.find((item) => item.severity !== "low")
+    ?? liveRisks[0];
+
+  function saveInterviewResponse(response: InterviewResponse) {
+    setProject((current) => {
+      if (!current.resume) return current;
+      const previous = current.resume.interviewResponses ?? [];
+      return {
+        ...current,
+        resume: {
+          ...current.resume,
+          interviewResponses: [...previous.filter((item) => item.claimId !== response.claimId), response],
+          revisions: current.resume.revisions ?? [],
+        },
+      };
+    });
+  }
+
+  function applyClaimRevision(risk: LiveRisk, action: ClaimRevision["action"]) {
+    setProject((current) => {
+      if (!current.resume) return current;
+      const original = current.resume.claims.find((claim) => claim.id === risk.claim.id);
+      if (!original) return current;
+      const revised = action === "weaken"
+        ? { ...original, text: risk.suggestion, risk: "low" as const }
+        : original;
+      const claims = action === "delete"
+        ? current.resume.claims.filter((claim) => claim.id !== original.id)
+        : current.resume.claims.map((claim) => claim.id === original.id ? revised : claim);
+      const revision: ClaimRevision = {
+        id: `REV-${Date.now()}`,
+        claimId: original.id,
+        riskId: risk.id,
+        action,
+        beforeText: original.text,
+        afterText: action === "delete" ? undefined : revised.text,
+        reason: action === "keep" ? "用户确认保留原文" : action === "weaken" ? risk.reason : "用户选择不在最终简历中采用此 Claim",
+        appliedAt: new Date().toISOString(),
+      };
+      return {
+        ...current,
+        resume: {
+          ...current.resume,
+          claims,
+          revisions: [...(current.resume.revisions ?? []).filter((item) => item.claimId !== original.id), revision],
+          interviewResponses: current.resume.interviewResponses ?? [],
+        },
+      };
+    });
+    setNotice(action === "delete" ? "该 Claim 已从最终简历删除" : action === "weaken" ? "已按事实边界弱化该 Claim" : "已记录保留原文的决定");
+    window.setTimeout(() => setNotice(""), 2400);
+  }
 
   function startProject(nextProject: GroundedProject) {
     setProject(nextProject);
@@ -306,11 +363,16 @@ export default function GroundedCVApp() {
             onNext={() => setActiveStep(3)}
           />
         ) : activeStep === 3 ? (
-          <RiskCenter risks={liveRisks} onNext={() => setActiveStep(4)} />
+          <RiskCenter risks={liveRisks} onSelectRisk={setSelectedRiskId} onNext={() => setActiveStep(4)} />
         ) : activeStep === 4 ? (
-          <InterviewTest risks={liveRisks} onNext={() => setActiveStep(5)} />
+          <InterviewTest
+            risk={selectedRisk}
+            response={project.resume?.interviewResponses?.find((item) => item.claimId === selectedRisk?.claim.id)}
+            onSave={saveInterviewResponse}
+            onNext={() => setActiveStep(5)}
+          />
         ) : activeStep === 5 ? (
-          <ReverseEdit risks={liveRisks} onNext={() => setActiveStep(6)} />
+          <ReverseEdit risk={selectedRisk} onApply={applyClaimRevision} onNext={() => setActiveStep(6)} />
         ) : activeStep === 6 ? (
           <FinalReport project={project} risks={liveRisks} />
         ) : (
@@ -575,7 +637,7 @@ function ClaimLine({ claim, active, onClick }: { claim: ResumeClaim; active: boo
   return <button type="button" className={active ? "claim-line active" : "claim-line"} onClick={onClick}><i className={`claim-dot ${claim.risk}`} /><span>{claim.text}</span><b>{claim.id}</b></button>;
 }
 
-function RiskCenter({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
+function RiskCenter({ risks, onSelectRisk, onNext }: { risks: LiveRisk[]; onSelectRisk: (riskId: string) => void; onNext: () => void }) {
   const [selected, setSelected] = useState("");
   const risk = risks.find((item) => item.id === selected) ?? risks[0];
   if (!risk) return <EmptyStage title="先生成当前项目的简历" copy="Claim 检测会读取你刚刚生成的简历，而不是展示固定示例。" />;
@@ -607,15 +669,14 @@ function RiskCenter({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }
           <div className="compare-box"><small>当前简历表述</small><p>{risk.claim.text}</p><mark>{risk.phrase}</mark></div>
           <h3>检查理由</h3><p className="detail-copy">{risk.reason}</p>
           <h3>系统建议</h3><div className="suggestion-box">{risk.suggestion}</div>
-          <div className="decision-buttons"><button type="button">保留原文</button><button type="button">补充事实</button><button type="button" className="recommended">进入追问 →</button></div>
+          <div className="decision-buttons"><button type="button" onClick={() => { onSelectRisk(risk.id); onNext(); }}>处理这条风险</button><button type="button" className="recommended" onClick={() => { onSelectRisk(risk.id); onNext(); }}>进入追问 →</button></div>
         </aside>
       </div>
     </div>
   );
 }
 
-function InterviewTest({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
-  const target = risks.find((item) => item.severity !== "low") ?? risks[0];
+function InterviewTest({ risk: target, response, onSave, onNext }: { risk?: LiveRisk; response?: InterviewResponse; onSave: (response: InterviewResponse) => void; onNext: () => void }) {
   if (!target) return <EmptyStage title="先生成当前项目的简历" copy="面试追问会围绕当前 Claim 的风险点生成。" />;
   const questions = [
     { level: "L1", title: "事实确认", question: `“${target.phrase}”在这段经历中具体指什么？请说明你亲自完成的行动。`, hint: "验证事实范围，避免把团队过程归因于个人。" },
@@ -623,10 +684,12 @@ function InterviewTest({ risks, onNext }: { risks: LiveRisk[]; onNext: () => voi
     { level: "L3", title: "结论挑战", question: `该结果与个人工作之间有什么直接证据？哪些部分应改为团队或项目结果？`, hint: "挑战过强因果，判断是否需要弱化。" },
   ];
   const [level, setLevel] = useState(0);
-  const [answers, setAnswers] = useState(["", "", ""]);
-  const [evaluated, setEvaluated] = useState(false);
+  const [answers, setAnswers] = useState(() => response?.answers ?? ["", "", ""]);
+  const [evaluated, setEvaluated] = useState(Boolean(response?.completedAt));
   const question = questions[level];
   function saveAnswer() {
+    const nextAnswers = answers.map((answer) => answer.trim());
+    onSave({ claimId: target.claim.id, riskId: target.id, answers: nextAnswers, completedAt: level === 2 ? new Date().toISOString() : undefined });
     if (level < 2) setLevel(level + 1);
     else setEvaluated(true);
   }
@@ -667,15 +730,14 @@ function InterviewTest({ risks, onNext }: { risks: LiveRisk[]; onNext: () => voi
   );
 }
 
-function ReverseEdit({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void }) {
-  const target = risks.find((item) => item.severity !== "low") ?? risks[0];
+function ReverseEdit({ risk: target, onApply, onNext }: { risk?: LiveRisk; onApply: (risk: LiveRisk, action: ClaimRevision["action"]) => void; onNext: () => void }) {
   if (!target) return <EmptyStage title="先生成当前项目的简历" copy="反向修改会使用当前风险检测结果。" />;
   const [choice, setChoice] = useState("weaken");
   return (
     <div className="page">
       <div className="page-heading">
         <div><span className="eyebrow">STEP 06 · REVERSE REVISION</span><h1>追问暴露的缺口，反向修改到简历里</h1><p>AI 提供不同强度的修改方案，但不会替你决定。选择后可以查看事实支持和信息损失。</p></div>
-        <button className="primary-button" type="button" onClick={onNext}>确认修改并生成报告 <span>→</span></button>
+        <button className="primary-button" type="button" onClick={() => { onApply(target, choice as ClaimRevision["action"]); onNext(); }}>确认修改并生成报告 <span>→</span></button>
       </div>
       <div className="revision-card">
         <div className="revision-before"><span>修改前 · {target.severity === "high" ? "高风险" : "需核实"}</span><p>{target.claim.text}</p></div>
@@ -693,6 +755,11 @@ function ReverseEdit({ risks, onNext }: { risks: LiveRisk[]; onNext: () => void 
 
 function FinalReport({ project, risks }: { project: GroundedProject; risks: LiveRisk[] }) {
   const [copied, setCopied] = useState(false);
+  const revisions = project.resume?.revisions ?? [];
+  const interviews = project.resume?.interviewResponses ?? [];
+  const traceability = project.resume?.claims.length
+    ? Math.round((project.resume.claims.filter((claim) => claim.facts.length > 0).length / project.resume.claims.length) * 100)
+    : 0;
   function copySummary() {
     navigator.clipboard?.writeText((project.resume?.claims ?? []).map((claim) => `- ${claim.text}`).join("\n"));
     setCopied(true);
@@ -701,10 +768,10 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
   return (
     <div className="page report-page">
       <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim；请在投递前处理仍存在的高风险表述。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制" : "复制 Markdown"}</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
-      <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>100%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{risks.filter((risk) => risk.severity === "medium").length}</strong><span>待核实数字/结果</span></div></div>
+      <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>{traceability}%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{interviews.length}</strong><span>已完成追问</span></div></div>
       <div className="report-grid">
-        <section className="report-section"><span className="card-category">修改记录</span><h2>系统做了什么改变</h2><div className="change-row"><span>弱化</span><p><del>推动项目通过评审</del><br /><ins>相关项目最终通过专家评审</ins></p></div><div className="change-row"><span>保留</span><p>参与 10+ 轮方案优化——回答能够支持具体参与范围和方法。</p></div><div className="change-row"><span>未写入</span><p>竞品分析、软件上线、Vibe Coding——当前事实库没有支持材料。</p></div></section>
-        <section className="report-section"><span className="card-category">面试准备</span><h2>建议重点准备 3 个问题</h2><ol><li>如何把多方访谈结果整理成需求池并确定优先级？</li><li>AI 未来办公项目为什么选择公开评价，而不是真人访谈？</li><li>你对 Agent、Prompt 和 Skill 的理解分别是什么？</li></ol><div className="final-note"><strong>产品原则</strong><p>匹配岗位不是把未做过的事情写进去，而是从真实经历中找到最相关、最能自证的表达。</p></div></section>
+        <section className="report-section"><span className="card-category">修改记录</span><h2>本次项目实际做了什么改变</h2>{revisions.length ? revisions.map((revision) => <div className="change-row" key={revision.id}><span>{revision.action === "weaken" ? "弱化" : revision.action === "delete" ? "未写入" : "保留"}</span><p>{revision.action === "weaken" && <><del>{revision.beforeText}</del><br /><ins>{revision.afterText}</ins></>}{revision.action === "delete" && <del>{revision.beforeText}</del>}{revision.action === "keep" && revision.beforeText}</p></div>) : <p className="detail-copy">尚未处理任何风险 Claim。返回“反向修改”后，选择保留、弱化或删除。</p>}</section>
+        <section className="report-section"><span className="card-category">面试准备</span><h2>已记录的连续追问</h2>{interviews.length ? <ol>{interviews.map((response) => <li key={response.claimId}><strong>{response.claimId}</strong>：已保存 {response.answers.filter(Boolean).length}/3 条回答，可返回“面试追问”继续补充。</li>)}</ol> : <p className="detail-copy">尚未完成面试追问。高风险 Claim 建议先回答三层问题，再决定是否采用。</p>}<div className="final-note"><strong>产品原则</strong><p>匹配岗位不是把未做过的事情写进去，而是从真实经历中找到最相关、最能自证的表达。</p></div></section>
       </div>
     </div>
   );

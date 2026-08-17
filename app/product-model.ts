@@ -55,6 +55,24 @@ export type ResumeClaim = {
   risk: "low" | "medium";
 };
 
+export type InterviewResponse = {
+  claimId: string;
+  riskId: string;
+  answers: string[];
+  completedAt?: string;
+};
+
+export type ClaimRevision = {
+  id: string;
+  claimId: string;
+  riskId: string;
+  action: "keep" | "weaken" | "delete";
+  beforeText: string;
+  afterText?: string;
+  reason: string;
+  appliedAt: string;
+};
+
 export type GeneratedResume = {
   generatedAt: string;
   candidateName: string;
@@ -62,6 +80,8 @@ export type GeneratedResume = {
   claims: ResumeClaim[];
   confirmedFactCount: number;
   includedExperienceCount: number;
+  interviewResponses: InterviewResponse[];
+  revisions: ClaimRevision[];
 };
 
 export type GroundedProject = {
@@ -367,5 +387,7 @@ export function generateGroundedResume(project: GroundedProject): GeneratedResum
     claims,
     confirmedFactCount: confirmedExperiences.reduce((total, item) => total + item.facts.length, 0),
     includedExperienceCount: confirmedExperiences.length,
+    interviewResponses: [],
+    revisions: [],
   };
 }

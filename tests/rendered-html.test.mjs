@@ -48,10 +48,15 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /AI 语义匹配/);
   assert.match(app, /可迁移/);
   assert.match(app, /当前项目的事实来源与表述对照/);
+  assert.match(app, /saveInterviewResponse/);
+  assert.match(app, /applyClaimRevision/);
+  assert.match(app, /本次项目实际做了什么改变/);
   assert.match(app, /setAiSettings\(\{ apiKey: "", model: "deepseek-v4-flash" \}\)/);
   assert.match(model, /export function generateGroundedResume/);
   assert.match(model, /fact\.status === "confirmed"/);
   assert.match(model, /includedExperienceCount/);
+  assert.match(model, /interviewResponses/);
+  assert.match(model, /ClaimRevision/);
 });
 
 test("keeps DeepSeek keys in the current page session", async () => {
