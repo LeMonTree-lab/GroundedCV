@@ -63,6 +63,8 @@ test("keeps DeepSeek keys in the current page session", async () => {
   const client = await readFile(new URL("../app/deepseek-client.ts", import.meta.url), "utf8");
   assert.match(client, /https:\/\/api\.deepseek\.com\/chat\/completions/);
   assert.match(client, /response_format: \{ type: "json_object" \}/);
+  assert.match(client, /thinking: \{ type: "disabled" \}/);
+  assert.match(client, /parseJsonPayload/);
   assert.match(client, /splitExperienceWithAi/);
   assert.match(client, /rewriteResumeWithAi/);
   assert.match(client, /analyzeJobFitWithAi/);

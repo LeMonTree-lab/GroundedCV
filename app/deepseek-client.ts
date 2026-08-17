@@ -11,6 +11,14 @@ function requireKey(settings: AiSettings) {
   if (!settings.apiKey.trim()) throw new Error("请先在「AI 设置」中填入 DeepSeek API Key。");
 }
 
+function parseJsonPayload<T>(content: string): T {
+  const clean = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
+  if (start < 0 || end < start) throw new SyntaxError("未找到 JSON 对象");
+  return JSON.parse(clean.slice(start, end + 1)) as T;
+}
+
 async function requestJson<T>(settings: AiSettings, system: string, user: string): Promise<T> {
   requireKey(settings);
   let lastError: Error | null = null;
@@ -27,6 +35,7 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
         stream: false,
         temperature: 0.2,
         max_tokens: 2200,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
       }),
@@ -36,7 +45,7 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
       const raw = data.choices?.[0]?.message?.content;
       const content = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((item) => item.text ?? "").join("") : "";
       if (!content.trim()) throw new Error("DeepSeek 本次返回空内容");
-      return JSON.parse(content) as T;
+      return parseJsonPayload<T>(content);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("AI 请求失败");
       if (lastError instanceof DOMException && lastError.name === "AbortError") break;
