@@ -216,23 +216,41 @@ function inferFactType(text: string) {
   return "经历事实";
 }
 
-const SECTION_LABELS = ["教育经历", "教育背景", "研究方向", "工作经历", "实习经历", "项目经历", "项目经验", "校园经历", "实践经历", "社会实践", "获奖经历", "荣誉奖项", "专业技能", "技能证书", "作品集", "作品链接", "个人作品", "个人总结", "自我评价", "基本信息", "个人信息"];
+const SECTION_LABELS = ["教育经历", "教育背景", "研究方向", "工作经历", "工作经验", "实习经历", "实习经验", "项目经历", "项目经验", "科研经历", "科研项目", "校园经历", "学生工作", "社团经历", "志愿服务", "实践经历", "社会实践", "竞赛经历", "获奖经历", "荣誉奖项", "专业技能", "技能证书", "语言能力", "作品集", "作品链接", "个人作品", "个人总结", "自我评价", "基本信息", "个人信息"];
 const SECTION_NAMES = SECTION_LABELS.join("|");
 
 const ASSET_CATEGORIES: Record<string, FactAsset["category"]> = {
   "专业技能": "技能卡", "技能证书": "技能卡", "教育经历": "教育与研究卡", "教育背景": "教育与研究卡",
   "研究方向": "教育与研究卡", "获奖经历": "获奖/证书卡", "荣誉奖项": "获奖/证书卡",
+  "语言能力": "技能卡",
   "作品集": "作品与链接卡", "作品链接": "作品与链接卡", "个人作品": "作品与链接卡",
   "自我评价": "技能卡", "个人总结": "技能卡",
   "基本信息": "教育与研究卡", "个人信息": "教育与研究卡",
 };
 
-const EXPERIENCE_SECTIONS = new Set(["工作经历", "实习经历", "项目经历", "项目经验", "校园经历", "实践经历", "社会实践"]);
+const EXPERIENCE_SECTION_CATEGORY: Record<string, string> = {
+  "工作经历": "工作经历", "工作经验": "工作经历",
+  "实习经历": "实习经历", "实习经验": "实习经历",
+  "项目经历": "项目经历", "项目经验": "项目经历", "科研经历": "项目经历", "科研项目": "项目经历", "竞赛经历": "项目经历",
+  "校园经历": "校园经历", "学生工作": "校园经历", "社团经历": "校园经历", "志愿服务": "校园经历",
+  "实践经历": "实践经历", "社会实践": "实践经历",
+};
+
+const EXPERIENCE_SECTIONS = new Set(Object.keys(EXPERIENCE_SECTION_CATEGORY));
 
 function canonicalSection(category: string) {
-  if (category === "项目经验") return "项目经历";
-  if (category === "社会实践") return "实践经历";
-  return category;
+  return EXPERIENCE_SECTION_CATEGORY[category] ?? category;
+}
+
+/** Personal profile data can be useful in the original file, but it is not
+ * evidence for a role and must never become an experience card or a claim. */
+function isProfileOnlyLine(text: string) {
+  return /(?:^|[｜|，,\s])(年龄|性别|出生(?:年月|日期)?|籍贯|民族|婚姻|政治面貌|身高|体重|现居地|户籍|身份证|手机号?|电话|邮箱|微信|QQ)(?:[：:｜|，,\s]|$)/i.test(text)
+    || /\b\d{11}\b|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/.test(text);
+}
+
+function isLanguageScoreLine(text: string) {
+  return /(?:CET[- ]?[46]|大学英语[四五六]级|雅思|IELTS|托福|TOEFL|TEM[- ]?[48]|英语[四六]级|PTE|GRE|GMAT)/i.test(text);
 }
 
 function needsConfirmation(text: string) {
@@ -283,7 +301,7 @@ function resumeSections(text: string) {
 }
 
 function inferTitle(category: string, lines: string[], index: number) {
-  const candidate = lines.find((line) => line.length <= 45 && !/^(时间|职责|内容|描述)[：:]/.test(line));
+  const candidate = lines.find((line) => line.length <= 45 && !isProfileOnlyLine(line) && !isLanguageScoreLine(line) && !/^(时间|职责|内容|描述)[：:]/.test(line));
   if (!candidate) return `${category} ${index + 1}`;
   // A single long paragraph is a fact, not a card title.
   return candidate.length <= 34 ? candidate : `${category} ${index + 1}`;
@@ -293,7 +311,9 @@ function looksLikeExperienceTitle(line: string) {
   return line.length >= 4
     && line.length <= 42
     && !/[。；;，,：:]/.test(line)
-    && !/^(负责|参与|协助|完成|使用|熟悉|掌握|获奖|时间|职责|内容|描述)/.test(line);
+    && !isProfileOnlyLine(line)
+    && !isLanguageScoreLine(line)
+    && !/^(负责|参与|协助|完成|使用|熟悉|掌握|获奖|时间|职责|内容|描述|年龄|性别|英语)/.test(line);
 }
 
 function splitExperienceSection(section: { category: string; lines: string[] }) {
@@ -317,7 +337,8 @@ function splitExperienceSection(section: { category: string; lines: string[] }) 
 
 function categoryLooksLikeExperience(category: string, lines: string[]) {
   if (EXPERIENCE_SECTIONS.has(category)) return true;
-  return /项目|实习|实践|课题|竞赛|系统|平台|调研|设计/.test(category) && lines.length >= 2;
+  return /项目|实习|实践|课题|竞赛|系统|平台|调研|设计/.test(category)
+    && lines.filter((line) => !isProfileOnlyLine(line) && !isLanguageScoreLine(line)).length >= 2;
 }
 
 export function experiencesFromResumeText(text: string, sourceName: string): Experience[] {
@@ -326,11 +347,12 @@ export function experiencesFromResumeText(text: string, sourceName: string): Exp
     .filter((section) => !ASSET_CATEGORIES[section.category])
     .filter((section) => categoryLooksLikeExperience(section.category, section.lines));
 
-  const blocks = usefulSections.flatMap((section) => splitExperienceSection(section).map((lines) => ({ category: section.category, lines })));
+  const blocks = usefulSections.flatMap((section) => splitExperienceSection(section).map((lines) => ({ category: canonicalSection(section.category), lines })));
   return blocks.slice(0, 8).map((section, sectionIndex) => {
     const title = inferTitle(section.category, section.lines, sectionIndex);
     const factLines = section.lines
       .filter((line) => line !== title || section.lines.length === 1)
+      .filter((line) => !isProfileOnlyLine(line) && !isLanguageScoreLine(line))
       .filter((line) => line.length >= 6)
       .slice(0, 12);
     return {
@@ -363,9 +385,10 @@ export function assetsFromResumeText(text: string, sourceName: string): FactAsse
     category: ASSET_CATEGORIES[group.category],
     meta: `来自 ${sourceName}`,
     // Contact details, age and other identity data are deliberately not made into
-    // resume claims. They remain in the original local file, not the fact library.
+    // resume claims. Language scores may remain a skill asset, but never a card
+    // title or an experience fact.
     facts: group.lines
-      .filter((text) => !/电话|手机|邮箱|微信|身份证|\b\d{11}\b|@/.test(text))
+      .filter((text) => !isProfileOnlyLine(text))
       .slice(0, 12)
       .map((text, factIndex) => ({ id: `FA${index + 1}${String(factIndex + 1).padStart(2, "0")}`, text, type: inferFactType(text), status: importedStatus(text), source: `${sourceName} · ${group.category}` })),
     forbidden: ["不得新增原文中不存在的技能等级、证书状态或奖项影响力"],
