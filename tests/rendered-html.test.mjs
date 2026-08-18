@@ -59,7 +59,7 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(model, /ClaimRevision/);
 });
 
-test("keeps DeepSeek keys in the current page session", async () => {
+test("keeps user-provided DeepSeek keys in the current page session", async () => {
   const client = await readFile(new URL("../app/deepseek-client.ts", import.meta.url), "utf8");
   assert.match(client, /https:\/\/api\.deepseek\.com\/chat\/completions/);
   assert.match(client, /response_format: \{ type: "json_object" \}/);
@@ -68,7 +68,12 @@ test("keeps DeepSeek keys in the current page session", async () => {
   assert.match(client, /splitExperienceWithAi/);
   assert.match(client, /rewriteResumeWithAi/);
   assert.match(client, /analyzeJobFitWithAi/);
-  assert.doesNotMatch(client, /localStorage|sessionStorage/);
+  // The anonymous trial needs a device id and short-lived trial token, but the
+  // user's own API key must never be persisted by the client.
+  assert.match(client, /groundedcv\.device-id/);
+  assert.match(client, /groundedcv\.trial-token/);
+  assert.doesNotMatch(client, /localStorage\.setItem\([^\n]*apiKey/i);
+  assert.doesNotMatch(client, /sessionStorage\.setItem\([^\n]*apiKey/i);
 });
 
 test("supports real resume entry points", async () => {

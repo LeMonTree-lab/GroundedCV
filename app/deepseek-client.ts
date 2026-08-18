@@ -7,8 +7,31 @@ export type AiSettings = {
 
 type ChatResponse = { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
 
-function requireKey(settings: AiSettings) {
-  if (!settings.apiKey.trim()) throw new Error("请先在「AI 设置」中填入 DeepSeek API Key。");
+const DEVICE_ID_KEY = "groundedcv.device-id";
+const TRIAL_TOKEN_KEY = "groundedcv.trial-token";
+
+function getDeviceId() {
+  if (typeof window === "undefined") return "server-render";
+  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+  if (existing) return existing;
+  const value = globalThis.crypto?.randomUUID?.() ?? `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  window.localStorage.setItem(DEVICE_ID_KEY, value);
+  return value;
+}
+
+async function getTrialToken() {
+  if (typeof window === "undefined") throw new Error("请在浏览器中发起 AI 请求。");
+  const existing = window.sessionStorage.getItem(TRIAL_TOKEN_KEY);
+  if (existing) return { deviceId: getDeviceId(), token: existing };
+  const response = await fetch("/api/trial/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: getDeviceId() }),
+  });
+  const data = await response.json() as { trialToken?: string; message?: string };
+  if (!response.ok || !data.trialToken) throw new Error(data.message || "本设备的免费试用次数已用完，请在 AI 设置中填入自己的 DeepSeek Key。");
+  window.sessionStorage.setItem(TRIAL_TOKEN_KEY, data.trialToken);
+  return { deviceId: getDeviceId(), token: data.trialToken };
 }
 
 function parseJsonPayload<T>(content: string): T {
@@ -20,15 +43,18 @@ function parseJsonPayload<T>(content: string): T {
 }
 
 async function requestJson<T>(settings: AiSettings, system: string, user: string): Promise<T> {
-  requireKey(settings);
+  const byok = Boolean(settings.apiKey.trim());
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 60_000);
     try {
-      const response = await fetch("https://api.deepseek.com/chat/completions", {
+      const trial = byok ? null : await getTrialToken();
+      const response = await fetch(byok ? "https://api.deepseek.com/chat/completions" : "/api/ai", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` },
+      headers: byok
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` }
+        : { "Content-Type": "application/json", "x-groundedcv-device": trial!.deviceId, "x-groundedcv-trial-token": trial!.token },
       signal: controller.signal,
       body: JSON.stringify({
         model: settings.model,
@@ -38,10 +64,12 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
         thinking: { type: "disabled" },
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        ...(byok ? {} : { deviceId: trial!.deviceId, trialToken: trial!.token, system, user }),
       }),
       });
-      const data = await response.json() as ChatResponse;
-      if (!response.ok) throw new Error(data.error?.message || `DeepSeek 请求失败（${response.status}）`);
+      const data = await response.json() as ChatResponse & { data?: T; message?: string };
+      if (!response.ok) throw new Error(data.error?.message || data.message || `DeepSeek 请求失败（${response.status}）`);
+      if (!byok && data.data) return data.data;
       const raw = data.choices?.[0]?.message?.content;
       const content = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((item) => item.text ?? "").join("") : "";
       if (!content.trim()) throw new Error("DeepSeek 本次返回空内容");

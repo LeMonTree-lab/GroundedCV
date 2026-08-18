@@ -12,9 +12,10 @@ import {
 type StartScreenProps = {
   savedProject: GroundedProject | null;
   onStart: (project: GroundedProject) => void;
+  onOpenApiSettings: () => void;
 };
 
-export default function StartScreen({ savedProject, onStart }: StartScreenProps) {
+export default function StartScreen({ savedProject, onStart, onOpenApiSettings }: StartScreenProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [resumeText, setResumeText] = useState("");
@@ -52,8 +53,8 @@ export default function StartScreen({ savedProject, onStart }: StartScreenProps)
           <span className="brand-mark">G</span>
           <span><strong>GroundedCV</strong><small>可信简历实验室</small></span>
         </a>
-        <button className="start-api-button" type="button" disabled title="API 设置将在接入 DeepSeek 时开放">
-          API 设置 · 即将开放
+        <button className="start-api-button" type="button" onClick={onOpenApiSettings}>
+          AI 设置 · 免费试用 / 自带 API
         </button>
       </header>
 
