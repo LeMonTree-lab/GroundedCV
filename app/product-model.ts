@@ -26,6 +26,11 @@ export type FactAsset = {
   forbidden: string[];
 };
 
+/** A single fact-library record.  Experience cards and supporting assets share
+ * one collection so they have the same provenance, confirmation and guardrail
+ * rules, while retaining their distinct resume sections. */
+export type FactRecord = Experience | FactAsset;
+
 export type JobTarget = {
   company: string;
   title: string;
@@ -90,8 +95,12 @@ export type GroundedProject = {
   sourceName: string;
   sourceText: string;
   candidateName: string;
-  experiences: Experience[];
-  assets: FactAsset[];
+  /** Current unified fact-asset library. */
+  factAssets: FactRecord[];
+  /** @deprecated Kept only so projects saved before the library refactor load safely. */
+  experiences?: Experience[];
+  /** @deprecated Kept only so projects saved before the library refactor load safely. */
+  assets?: FactAsset[];
   job: JobTarget;
   jobAnalysis?: SemanticJobRequirement[];
   resume?: GeneratedResume;
@@ -99,6 +108,24 @@ export type GroundedProject = {
 };
 
 export const PROJECT_STORAGE_KEY = "groundedcv.project.v1";
+
+export function isExperienceAsset(record: FactRecord): record is Experience {
+  return /工作|实习|项目|校园|实践|其他经历/.test(record.category);
+}
+
+/** Reads both the new unified storage and older browser-local projects. */
+export function getFactAssets(project: GroundedProject): FactRecord[] {
+  return Array.isArray(project.factAssets)
+    ? project.factAssets
+    : [...(project.experiences ?? []), ...(project.assets ?? [])];
+}
+
+export function normalizeGroundedProject(project: GroundedProject): GroundedProject {
+  const current = { ...project };
+  delete current.experiences;
+  delete current.assets;
+  return { ...current, factAssets: getFactAssets(project) };
+}
 
 export const DEWU_JOB: JobTarget = {
   company: "上海得物信息集团有限公司",
@@ -169,8 +196,7 @@ export function createSampleProject(): GroundedProject {
     sourceName: "匿名示例简历",
     sourceText: "GroundedCV 内置匿名示例",
     candidateName: "林舟",
-    experiences: structuredClone(SAMPLE_EXPERIENCES),
-    assets: structuredClone(SAMPLE_ASSETS),
+    factAssets: [...structuredClone(SAMPLE_EXPERIENCES), ...structuredClone(SAMPLE_ASSETS)],
     job: { ...DEWU_JOB },
     updatedAt: new Date().toISOString(),
   };
@@ -362,8 +388,7 @@ export function createPersonalProject(
     sourceName,
     sourceText: text,
     candidateName,
-    experiences: experiencesFromResumeText(text, sourceName),
-    assets: assetsFromResumeText(text, sourceName),
+    factAssets: [...experiencesFromResumeText(text, sourceName), ...assetsFromResumeText(text, sourceName)],
     job: { company: "", title: "", description: "" },
     updatedAt: new Date().toISOString(),
   };
@@ -408,7 +433,7 @@ function matchingJdIds(text: string, job: JobTarget) {
 }
 
 export function generateGroundedResume(project: GroundedProject): GeneratedResume {
-  const records = [...project.experiences, ...(project.assets ?? [])];
+  const records = getFactAssets(project);
   const confirmedExperiences = records
     .map((experience) => ({
       experience,

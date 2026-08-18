@@ -7,6 +7,9 @@ import {
   PROJECT_STORAGE_KEY,
   createSampleProject,
   generateGroundedResume,
+  getFactAssets,
+  isExperienceAsset,
+  normalizeGroundedProject,
   type Experience,
   type FactAsset,
   type Fact,
@@ -20,7 +23,7 @@ import {
 } from "./product-model";
 
 const STEPS = [
-  ["01", "经历事实库", "确认 AI 能使用的事实"],
+  ["01", "统一事实资产库", "确认 AI 能使用的真实事实"],
   ["02", "目标岗位", "拆解 JD 与事实覆盖"],
   ["03", "岗位化简历", "生成整份可追溯简历"],
   ["04", "Claim 风险", "发现夸大与无依据表述"],
@@ -105,7 +108,7 @@ function softenClaimText(text: string, sourceFacts: Fact[]) {
 
 function inspectResume(project: GroundedProject): LiveRisk[] {
   const claims = project.resume?.claims ?? [];
-  const facts = [...project.experiences, ...(project.assets ?? [])].flatMap((record) => record.facts);
+  const facts = getFactAssets(project).flatMap((record) => record.facts);
   return claims.map((claim, index) => {
     const sources = facts.filter((fact) => claim.facts.includes(fact.id));
     const sourceText = sources.map((fact) => fact.text).join("；");
@@ -134,7 +137,10 @@ export default function GroundedCVApp() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(PROJECT_STORAGE_KEY);
-      if (raw) setSavedProject(JSON.parse(raw) as GroundedProject);
+      if (raw) {
+        const saved = normalizeGroundedProject(JSON.parse(raw) as GroundedProject);
+        window.queueMicrotask(() => setSavedProject(saved));
+      }
     } catch {
       window.localStorage.removeItem(PROJECT_STORAGE_KEY);
     } finally {
@@ -148,11 +154,12 @@ export default function GroundedCVApp() {
       PROJECT_STORAGE_KEY,
       JSON.stringify({ ...project, updatedAt: new Date().toISOString() }),
     );
-    setSavedProject(project);
+    window.queueMicrotask(() => setSavedProject(project));
   }, [hydrated, project, screen]);
 
-  const experiences = project.experiences;
-  const assets = project.assets ?? [];
+  const factAssets = getFactAssets(project);
+  const experiences = factAssets.filter(isExperienceAsset);
+  const assets = factAssets.filter((record): record is FactAsset => !isExperienceAsset(record));
   const facts = useMemo(() => [...experiences, ...assets].flatMap((item) => item.facts), [experiences, assets]);
   const confirmed = facts.filter((fact) => fact.status === "confirmed").length;
   const pending = facts.filter((fact) => fact.status === "pending").length;
@@ -213,8 +220,9 @@ export default function GroundedCVApp() {
   }
 
   function startProject(nextProject: GroundedProject) {
-    setProject(nextProject);
-    setSelectedExperience(nextProject.experiences[0]?.id ?? "");
+    const normalized = normalizeGroundedProject(nextProject);
+    setProject(normalized);
+    setSelectedExperience(getFactAssets(normalized).find(isExperienceAsset)?.id ?? "");
     setActiveStep(0);
     setScreen("workspace");
   }
@@ -223,11 +231,10 @@ export default function GroundedCVApp() {
     setProject((current) => ({
       ...current,
       resume: undefined,
-      experiences: current.experiences.map((experience) => ({
-        ...experience,
-        facts: experience.facts.map((fact) => (fact.id === factId ? { ...fact, status } : fact)),
+      factAssets: getFactAssets(current).map((record) => ({
+        ...record,
+        facts: record.facts.map((fact) => fact.id === factId ? { ...fact, status } : fact),
       })),
-      assets: (current.assets ?? []).map((asset) => ({ ...asset, facts: asset.facts.map((fact) => fact.id === factId ? { ...fact, status } : fact) })),
     }));
     setNotice(status === "confirmed" ? `${factId} 已加入可信事实库` : `${factId} 已标记为${statusLabel[status]}`);
     window.setTimeout(() => setNotice(""), 2200);
@@ -235,13 +242,12 @@ export default function GroundedCVApp() {
 
   function upsertExperience(experience: Experience) {
     setProject((current) => {
-      const exists = current.experiences.some((item) => item.id === experience.id);
+      const records = getFactAssets(current);
+      const exists = records.some((item) => item.id === experience.id);
       return {
         ...current,
         resume: undefined,
-        experiences: exists
-          ? current.experiences.map((item) => item.id === experience.id ? experience : item)
-          : [...current.experiences, experience],
+        factAssets: exists ? records.map((item) => item.id === experience.id ? experience : item) : [...records, experience],
       };
     });
     setSelectedExperience(experience.id);
@@ -254,7 +260,7 @@ export default function GroundedCVApp() {
     setProject((current) => ({
       ...current,
       resume: undefined,
-      experiences: current.experiences.filter((item) => item.id !== experienceId),
+      factAssets: getFactAssets(current).filter((item) => item.id !== experienceId),
     }));
     setSelectedExperience(next?.id ?? "");
     setNotice("经历卡已删除");
@@ -262,7 +268,11 @@ export default function GroundedCVApp() {
   }
 
   function upsertAsset(asset: FactAsset) {
-    setProject((current) => ({ ...current, resume: undefined, assets: (current.assets ?? []).some((item) => item.id === asset.id) ? (current.assets ?? []).map((item) => item.id === asset.id ? asset : item) : [...(current.assets ?? []), asset] }));
+    setProject((current) => {
+      const records = getFactAssets(current);
+      const exists = records.some((item) => item.id === asset.id);
+      return { ...current, resume: undefined, factAssets: exists ? records.map((item) => item.id === asset.id ? asset : item) : [...records, asset] };
+    });
     setNotice("事实资产已保存");
     window.setTimeout(() => setNotice(""), 1800);
   }
@@ -272,7 +282,7 @@ export default function GroundedCVApp() {
       ...current,
       resume: undefined,
       jobAnalysis: undefined,
-      assets: (current.assets ?? []).filter((item) => item.id !== assetId),
+      factAssets: getFactAssets(current).filter((item) => item.id !== assetId),
     }));
     setNotice("事实资产已删除");
     window.setTimeout(() => setNotice(""), 1800);
@@ -369,7 +379,7 @@ export default function GroundedCVApp() {
         ) : activeStep === 1 ? (
           <JobAnalysis
             job={project.job}
-            experiences={project.experiences}
+            experiences={experiences}
             assets={assets}
             aiSettings={aiSettings}
             analysis={project.jobAnalysis}
@@ -640,7 +650,7 @@ function ResumeStudio({
   const [aiError, setAiError] = useState("");
   const resume = project.resume;
   const activeClaim = resume?.claims.find((claim) => claim.id === selectedClaim) ?? resume?.claims[0];
-  const sourceFacts = [...project.experiences, ...(project.assets ?? [])].flatMap((record) => record.facts);
+  const sourceFacts = getFactAssets(project).flatMap((record) => record.facts);
   const sections: ResumeClaim["section"][] = ["工作经历", "项目经历", "教育与研究", "技能", "奖项/证书", "作品与链接", "其他经历"];
   const canInspect = Boolean(resume?.claims.length);
 
@@ -746,6 +756,9 @@ function RiskCenter({ risks, onSelectRisk, onNext }: { risks: LiveRisk[]; onSele
 }
 
 function InterviewTest({ risks, risk: target, response, completedClaimIds, onSave, onSelectRisk, onNext }: { risks: LiveRisk[]; risk?: LiveRisk; response?: InterviewResponse; completedClaimIds: string[]; onSave: (response: InterviewResponse) => void; onSelectRisk: (riskId: string) => void; onNext: () => void }) {
+  const [level, setLevel] = useState(0);
+  const [answers, setAnswers] = useState(() => response?.answers ?? ["", "", ""]);
+  const [evaluated, setEvaluated] = useState(Boolean(response?.completedAt));
   if (!target) return <EmptyStage title="先生成当前项目的简历" copy="面试追问会围绕当前 Claim 的风险点生成。" />;
   const completed = new Set(completedClaimIds);
   const pendingRisks = risks.filter((risk) => !completed.has(risk.claim.id));
@@ -756,9 +769,6 @@ function InterviewTest({ risks, risk: target, response, completedClaimIds, onSav
     { level: "L2", title: "方法验证", question: `你使用了什么方法或产物来支撑“${target.claim.text}”？`, hint: "验证行动、方法与产出能否形成完整证据链。" },
     { level: "L3", title: "结论挑战", question: `针对${challengedExpression}，它与个人工作之间有什么直接证据？哪些部分应改为团队或项目结果？`, hint: "挑战过强因果，判断是否需要弱化。" },
   ];
-  const [level, setLevel] = useState(0);
-  const [answers, setAnswers] = useState(() => response?.answers ?? ["", "", ""]);
-  const [evaluated, setEvaluated] = useState(Boolean(response?.completedAt));
   const question = questions[level];
   function saveAnswer() {
     const nextAnswers = answers.map((answer) => answer.trim());
@@ -820,8 +830,8 @@ function InterviewTest({ risks, risk: target, response, completedClaimIds, onSav
 }
 
 function ReverseEdit({ risks, onApplyAll, onNext }: { risks: LiveRisk[]; onApplyAll: (decisions: Array<{ risk: LiveRisk; action: ClaimRevision["action"] }>) => void; onNext: () => void }) {
-  if (!risks.length) return <EmptyStage title="先生成当前项目的简历" copy="反向修改会使用当前风险检测结果。" />;
   const [choices, setChoices] = useState<Record<string, ClaimRevision["action"]>>(() => Object.fromEntries(risks.map((risk) => [risk.id, risk.severity === "low" ? "keep" : "weaken"])));
+  if (!risks.length) return <EmptyStage title="先生成当前项目的简历" copy="反向修改会使用当前风险检测结果。" />;
   const processed = risks.filter((risk) => choices[risk.id]).length;
   function applyAll() {
     onApplyAll(risks.map((risk) => ({ risk, action: choices[risk.id] ?? "keep" })));
@@ -953,14 +963,14 @@ function FactLibrary({
       <div className="page-heading">
         <div>
           <span className="eyebrow">STEP 01 · EVIDENCE FIRST</span>
-          <h1>先确认事实，再让 AI 写简历</h1>
-          <p>来源清楚的描述会自动收录；只需核查数字、奖项、职责边界、能力等级和结果等模糊或高风险内容，后续每句话都将从这里寻找来源。</p>
+          <h1>统一管理真实事实，再让 AI 写简历</h1>
+          <p>经历、技能、教育研究、奖项证书和作品链接都在同一事实资产库中管理。来源清楚的描述会自动收录；只需核查数字、职责边界、能力等级和结果等高风险内容。</p>
         </div>
         <button className="primary-button" type="button" onClick={onNext}>确认并分析岗位 <span>→</span></button>
       </div>
 
       <div className="metric-strip">
-        <div><span className="metric-value">{experiences.length}</span><span>段经历</span></div>
+        <div><span className="metric-value">{experiences.length + assets.length}</span><span>张事实资产卡</span></div>
         <div><span className="metric-value">{total}</span><span>条原子事实</span></div>
         <div><span className="metric-value green">{confirmed}</span><span>条已确认</span></div>
         <div><span className="metric-value amber">{pending}</span><span>条待确认</span></div>
@@ -1060,7 +1070,7 @@ function AssetLibrary({
   const [editing, setEditing] = useState<FactAsset | "new" | null>(null);
   return <section className="asset-library">
     <div className="asset-library-head">
-      <div><span className="eyebrow">FACT ASSET LIBRARY</span><h2>其他事实资产</h2><p>技能、教育与研究、奖项证书、作品与链接会参与 JD 匹配，并分别进入简历的对应栏目，不会被混入“其他经历”。</p></div>
+      <div><span className="eyebrow">FACT ASSET LIBRARY</span><h2>支持型事实资产</h2><p>技能、教育与研究、奖项证书、作品与链接与经历卡共享同一事实库，会参与 JD 匹配，并分别进入简历的对应栏目，不会被混入“其他经历”。</p></div>
       <button type="button" className="ghost-button" onClick={() => setEditing("new")}>＋ 添加事实资产</button>
     </div>
     <div className="asset-grid">

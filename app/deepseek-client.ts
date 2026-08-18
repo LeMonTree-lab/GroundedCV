@@ -1,4 +1,4 @@
-import { resumeSection, type Experience, type Fact, type FactAsset, type GroundedProject, type ResumeClaim, type SemanticJobRequirement } from "./product-model";
+import { getFactAssets, resumeSection, type Experience, type Fact, type FactAsset, type GroundedProject, type ResumeClaim, type SemanticJobRequirement } from "./product-model";
 
 export type AiSettings = {
   apiKey: string;
@@ -143,7 +143,7 @@ export async function analyzeJobFitWithAi(settings: AiSettings, job: GroundedPro
 type AiClaim = { experienceId?: string; text?: string; facts?: string[]; risk?: "low" | "medium" };
 
 export async function rewriteResumeWithAi(settings: AiSettings, project: GroundedProject): Promise<ResumeClaim[]> {
-  const confirmed = [...project.experiences, ...(project.assets ?? [])].map((experience) => ({
+  const confirmed = getFactAssets(project).map((experience) => ({
     id: experience.id,
     title: experience.title,
     meta: experience.meta,
@@ -165,7 +165,7 @@ export async function rewriteResumeWithAi(settings: AiSettings, project: Grounde
 输出：{"claims":[{"experienceId":"EXP-01","text":"...","facts":["F101"],"risk":"low"}]}`,
     JSON.stringify({ job: project.job, experiences: confirmed }),
   );
-  const sourceById = new Map([...project.experiences, ...(project.assets ?? [])].map((experience) => [experience.id, experience]));
+  const sourceById = new Map(getFactAssets(project).map((experience) => [experience.id, experience]));
   return (data.claims ?? []).flatMap((item, index) => {
     const experience = sourceById.get(String(item.experienceId ?? ""));
     const text = String(item.text ?? "").trim();

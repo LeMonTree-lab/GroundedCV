@@ -31,7 +31,7 @@ test("server-renders the GroundedCV product shell", async () => {
 test("keeps the seven-stage product flow in the client app", async () => {
   const app = await readFile(new URL("../app/GroundedCVApp.tsx", import.meta.url), "utf8");
   const model = await readFile(new URL("../app/product-model.ts", import.meta.url), "utf8");
-  for (const label of ["经历事实库", "目标岗位", "岗位化简历", "Claim 风险", "面试追问", "反向修改", "最终报告"]) {
+  for (const label of ["统一事实资产库", "目标岗位", "岗位化简历", "Claim 风险", "面试追问", "反向修改", "最终报告"]) {
     assert.match(app, new RegExp(label));
   }
   assert.match(app, /R01/);
@@ -57,6 +57,8 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(model, /includedExperienceCount/);
   assert.match(model, /interviewResponses/);
   assert.match(model, /ClaimRevision/);
+  assert.match(model, /factAssets: FactRecord\[\]/);
+  assert.match(model, /normalizeGroundedProject/);
 });
 
 test("keeps user-provided DeepSeek keys in the current page session", async () => {
