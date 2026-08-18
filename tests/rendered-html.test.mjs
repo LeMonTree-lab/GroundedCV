@@ -47,7 +47,9 @@ test("keeps the seven-stage product flow in the client app", async () => {
   assert.match(app, /function inspectResume/);
   assert.match(app, /AI 语义匹配/);
   assert.match(app, /可迁移/);
-  assert.match(app, /当前项目的事实来源与表述对照/);
+  assert.match(app, /仅列出需要用户处理的风险项/);
+  assert.match(app, /所有 Claim 均在事实边界内/);
+  assert.match(app, /仅确认参与相关工作/);
   assert.match(app, /saveInterviewResponse/);
   assert.match(app, /applyClaimRevision/);
   assert.match(app, /本次项目实际做了什么改变/);
