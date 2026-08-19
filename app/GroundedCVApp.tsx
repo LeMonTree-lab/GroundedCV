@@ -109,6 +109,22 @@ function softenClaimText(text: string, sourceFacts: Fact[]) {
   return source && source !== text ? `基于已确认事实：${source}` : `仅确认参与相关工作：${text}`;
 }
 
+/** For an actual risk, remove the unsupported result/causal clause instead of
+ * merely swapping one verb. The result is intentionally shorter and visibly
+ * narrower than the original claim. */
+function weakenToEvidence(text: string, sourceFacts: Fact[]) {
+  const source = sourceFacts.map((fact) => fact.text.replace(/[。；;]+$/, "")).join("；");
+  const withoutOutcome = text
+    .replace(/[，,；;、]?\s*(确保|从而|并|且)?\s*(推动|提升|增长|降低|转化|实现|达成|上线|落地).{0,30}(?=[。；;]|$)/g, "")
+    .replace(/[，,；;、]?\s*(确保|保证).{0,30}(?=[。；;]|$)/g, "")
+    .replace(/[，,；;]+$/, "")
+    .trim();
+  if (withoutOutcome && withoutOutcome !== text) return withoutOutcome;
+  const coordinated = source.match(/^协调(.+?)(?:开展|进行)(.+)$/);
+  if (coordinated) return `参与${coordinated[1]}的${coordinated[2]}沟通。`;
+  return source && source !== text ? source : `参与相关工作：${text}`;
+}
+
 function inspectResume(project: GroundedProject): LiveRisk[] {
   const claims = project.resume?.claims ?? [];
   const facts = getFactAssets(project).flatMap((record) => record.facts);
@@ -122,14 +138,12 @@ function inspectResume(project: GroundedProject): LiveRisk[] {
     const risky = claim.text.match(/主导|推动|提升|增长|降低|转化|上线|独立负责|显著|从0到1|从零到一/g)?.[0];
     const numbers = claim.text.match(/\d+(?:[+.%万千])?/g) ?? [];
     const newNumber = numbers.find((number) => !sourceText.includes(number));
-    if (newNumber) return [{ id: `R${index +1}`, claim, severity: "high" as const, type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
-    if (risky && !sourceText.includes(risky)) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "责任或结果升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任、结果或项目状态强度。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
+    if (newNumber) return [{ id: `R${index +1}`, claim, severity: "high" as const, type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: weakenToEvidence(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
+    if (risky && !sourceText.includes(risky)) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "责任或结果升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任、结果或项目状态强度。`, suggestion: weakenToEvidence(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
     const hasOutcomeWithoutBoundary = /完成|实现|达成/.test(claim.text) && !/完成|实现|达成/.test(sourceText) && /结果|项目|方案|功能|目标/.test(claim.text);
-    if (hasOutcomeWithoutBoundary) return [{ id: `R${index + 1}`, claim, severity: "medium" as const, type: "结果边界不清", phrase: claim.text.match(/完成|实现|达成/)?.[0] ?? "结果", reason: "该 Claim 的完成或结果语气超过了来源中可识别的个人参与边界。", suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
+    if (hasOutcomeWithoutBoundary) return [{ id: `R${index + 1}`, claim, severity: "medium" as const, type: "结果边界不清", phrase: claim.text.match(/完成|实现|达成/)?.[0] ?? "结果", reason: "该 Claim 的完成或结果语气超过了来源中可识别的个人参与边界。", suggestion: weakenToEvidence(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
     return [];
   });
-  if (materialRisks.length) return materialRisks;
-
   // A claim review must remain useful even when the generated text is fully
   // source-complete. Choose only high-signal work/project claims that a hiring
   // manager could reasonably ask about; never surface profile, education,
@@ -146,14 +160,16 @@ function inspectResume(project: GroundedProject): LiveRisk[] {
         + (claim.jd.length ? 2 : 0);
       return { claim, sources, index, score };
     })
-    .filter((item) => item.sources.length && item.score >= 7)
+    .filter((item) => item.sources.length && item.score >= 4 && !materialRisks.some((risk) => risk.claim.id === item.claim.id))
     .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, 3);
-  const selectedCandidates = candidates.length ? candidates : claims
+    .slice(0, Math.max(0, 8 - materialRisks.length));
+  const fallbackCandidates = claims
     .map((claim, index) => ({ claim, index, sources: facts.filter((fact) => claim.facts.includes(fact.id)) }))
     .filter((item) => item.sources.length && (item.claim.section === "工作经历" || item.claim.section === "项目经历" || item.claim.section === "其他经历"))
-    .slice(0, 1);
-  return selectedCandidates.map(({ claim, sources, index }, candidateIndex) => ({
+    .filter((item) => !materialRisks.some((risk) => risk.claim.id === item.claim.id) && !candidates.some((candidate) => candidate.claim.id === item.claim.id));
+  const selectedCandidates = [...candidates, ...fallbackCandidates]
+    .slice(0, Math.max(0, 8 - materialRisks.length));
+  const verificationClaims = selectedCandidates.map(({ claim, sources, index }, candidateIndex) => ({
     id: `V${index + 1}`,
     claim,
     severity: "medium" as const,
@@ -164,6 +180,7 @@ function inspectResume(project: GroundedProject): LiveRisk[] {
     sourceFacts: sources,
     recommendedAction: "keep" as const,
   }));
+  return [...materialRisks, ...verificationClaims].slice(0, 10);
 }
 
 export default function GroundedCVApp() {
@@ -237,9 +254,9 @@ export default function GroundedCVApp() {
         .map((claim) => {
           const decision = decisionByClaim.get(claim.id);
           const weakened = decision?.risk.suggestion === claim.text
-            ? softenClaimText(claim.text, decision.risk.sourceFacts)
+            ? weakenToEvidence(claim.text, decision.risk.sourceFacts)
             : decision?.risk.suggestion;
-          return decision?.action === "weaken" ? { ...claim, text: weakened || softenClaimText(claim.text, decision.risk.sourceFacts), risk: "low" as const } : claim;
+          return decision?.action === "weaken" ? { ...claim, text: weakened || weakenToEvidence(claim.text, decision.risk.sourceFacts), risk: "low" as const } : claim;
         });
       const revisions: ClaimRevision[] = decisions.map(({ risk, action }, index) => ({
         id: `REV-${Date.now()}-${index}`,
@@ -247,7 +264,7 @@ export default function GroundedCVApp() {
         riskId: risk.id,
         action,
         beforeText: risk.claim.text,
-        afterText: action === "delete" ? undefined : action === "weaken" ? (risk.suggestion === risk.claim.text ? softenClaimText(risk.claim.text, risk.sourceFacts) : risk.suggestion) : risk.claim.text,
+        afterText: action === "delete" ? undefined : action === "weaken" ? (risk.suggestion === risk.claim.text ? weakenToEvidence(risk.claim.text, risk.sourceFacts) : risk.suggestion) : risk.claim.text,
         reason: action === "keep" ? "用户确认保留原文" : action === "weaken" ? risk.reason : "用户选择不在最终简历中采用此 Claim",
         appliedAt: new Date().toISOString(),
       }));

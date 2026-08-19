@@ -128,10 +128,10 @@ export function normalizeGroundedProject(project: GroundedProject): GroundedProj
 }
 
 export const DEWU_JOB: JobTarget = {
-  company: "上海得物信息集团有限公司",
-  title: "内部 AI 工具产品实习生",
+  company: "影石 360",
+  title: "AI 体验产品实习生",
   description:
-    "参与内部AI工具的需求调研、竞品分析与产品方案设计，协助梳理内部业务流程，挖掘可通过AI提效的场景，输出需求文档；跟进产品开发过程，协调研发、设计等角色，推动功能按期上线；收集用户反馈，整理使用数据，协助产品迭代优化；关注AI工具类产品动态，定期输出竞品调研与趋势分析。了解LLM、Prompt、Agent、Skill等概念，使用过Codex、Claude等AI工具，具备Vibe Coding能力。",
+    "职位描述\n1、参与体验设计部 AI 提效场景梳理，覆盖固件、软件、品牌、展陈、动效等方向；\n2、参与需求调研、流程拆解、用户角色分析、痛点整理和 AI 机会点判断；\n3、梳理可落地的 AI 产品方案，例如工具原型、工作流、知识库、自动化脚本、Demo 等；\n4、输出项目材料、需求文档、流程图、调研总结和阶段复盘；\n5、跟进 AI 方案从想法到 Demo/MVP 的验证过程，记录问题、反馈和优化建议；\n6、沉淀 AI 工具案例、提示词、方法论和优秀实践。\n\n职位要求\n1、逻辑清晰，信息整理和表达能力强；\n2、对 AI 工具、产品设计、用户体验或设计提效感兴趣；\n3、能理解用户场景、业务流程、痛点和需求优先级；\n4、熟悉 ChatGPT、飞书 AI、Notion AI 等工具优先；\n5、跟进 AI 方案从想法到 Demo/MVP 的验证过程，记录问题、反馈和优化建议；\n6、沉淀 AI 工具案例、提示词、方法论和优秀实践。\n\n加分项\n1、有产品分析、用户研究、竞品分析、用户体验、项目管理等相关经验；\n2、能说清楚自己用 AI 提效的实际案例；\n3、对硬件产品、影像产品、设计工具或内部效率工具感兴趣。",
 };
 
 export const SAMPLE_EXPERIENCES: Experience[] = [
