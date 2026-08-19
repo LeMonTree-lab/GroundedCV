@@ -18,6 +18,9 @@ interface Env {
 type TrialRecord = { token: string; expiresAt: number };
 const MAX_MONTHLY_TRIALS = 10;
 const TRIAL_TTL_MS = 30 * 60 * 1000;
+// Temporary product-testing mode. Restore false before public promotion to
+// require the device-bound public trial token again.
+const UNLIMITED_PUBLIC_TESTING = true;
 const fallbackTrials = new Map<string, TrialRecord>();
 const fallbackMonthly = new Map<string, number>();
 
@@ -112,7 +115,7 @@ function parseModelJson(content: string) {
 async function proxyAi(request: Request, env: Env) {
   if (!env.DEEPSEEK_API_KEY) return json({ message: "公开试用尚未配置服务端 AI，请稍后再试或填入自己的 DeepSeek Key。" }, 503, request);
   const body = await request.json().catch(() => ({})) as { deviceId?: unknown; trialToken?: unknown; system?: unknown; user?: unknown; model?: unknown };
-  if (!validDeviceId(body.deviceId) || typeof body.trialToken !== "string" || !(await validTrial(body.deviceId, body.trialToken, env))) return json({ code: "TRIAL_INVALID", message: "试用会话已失效，请刷新页面重新开始。" }, 403, request);
+  if (!UNLIMITED_PUBLIC_TESTING && (!validDeviceId(body.deviceId) || typeof body.trialToken !== "string" || !(await validTrial(body.deviceId, body.trialToken, env)))) return json({ code: "TRIAL_INVALID", message: "试用会话已失效，请刷新页面重新开始。" }, 403, request);
   if (typeof body.system !== "string" || typeof body.user !== "string" || body.system.length + body.user.length > 100_000) return json({ message: "请求内容过长，请减少简历或岗位文字后重试。" }, 400, request);
   const upstream = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",

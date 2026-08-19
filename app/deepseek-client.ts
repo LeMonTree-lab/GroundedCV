@@ -7,33 +7,6 @@ export type AiSettings = {
 
 type ChatResponse = { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
 
-const DEVICE_ID_KEY = "groundedcv.device-id";
-const TRIAL_TOKEN_KEY = "groundedcv.trial-token";
-
-function getDeviceId() {
-  if (typeof window === "undefined") return "server-render";
-  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
-  if (existing) return existing;
-  const value = globalThis.crypto?.randomUUID?.() ?? `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  window.localStorage.setItem(DEVICE_ID_KEY, value);
-  return value;
-}
-
-async function getTrialToken() {
-  if (typeof window === "undefined") throw new Error("请在浏览器中发起 AI 请求。");
-  const existing = window.sessionStorage.getItem(TRIAL_TOKEN_KEY);
-  if (existing) return { deviceId: getDeviceId(), token: existing };
-  const response = await fetch("/api/trial/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deviceId: getDeviceId() }),
-  });
-  const data = await response.json() as { trialToken?: string; message?: string };
-  if (!response.ok || !data.trialToken) throw new Error(data.message || "本设备的免费试用次数已用完，请在 AI 设置中填入自己的 DeepSeek Key。");
-  window.sessionStorage.setItem(TRIAL_TOKEN_KEY, data.trialToken);
-  return { deviceId: getDeviceId(), token: data.trialToken };
-}
-
 function parseJsonPayload<T>(content: string): T {
   const clean = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = clean.indexOf("{");
@@ -49,12 +22,11 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 60_000);
     try {
-      const trial = byok ? null : await getTrialToken();
       const response = await fetch(byok ? "https://api.deepseek.com/chat/completions" : "/api/ai", {
       method: "POST",
       headers: byok
         ? { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` }
-        : { "Content-Type": "application/json", "x-groundedcv-device": trial!.deviceId, "x-groundedcv-trial-token": trial!.token },
+        : { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
         model: settings.model,
@@ -64,7 +36,7 @@ async function requestJson<T>(settings: AiSettings, system: string, user: string
         thinking: { type: "disabled" },
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        ...(byok ? {} : { deviceId: trial!.deviceId, trialToken: trial!.token, system, user }),
+        ...(byok ? {} : { system, user }),
       }),
       });
       const data = await response.json() as ChatResponse & { data?: T; message?: string };

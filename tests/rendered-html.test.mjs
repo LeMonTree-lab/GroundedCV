@@ -72,10 +72,10 @@ test("keeps user-provided DeepSeek keys in the current page session", async () =
   assert.match(client, /splitExperienceWithAi/);
   assert.match(client, /rewriteResumeWithAi/);
   assert.match(client, /analyzeJobFitWithAi/);
-  // The anonymous trial needs a device id and short-lived trial token, but the
-  // user's own API key must never be persisted by the client.
-  assert.match(client, /groundedcv\.device-id/);
-  assert.match(client, /groundedcv\.trial-token/);
+  // During administrator-enabled open testing, the browser does not persist a
+  // device trial token; the user's own API key must still never be persisted.
+  assert.doesNotMatch(client, /groundedcv\.device-id/);
+  assert.doesNotMatch(client, /groundedcv\.trial-token/);
   assert.doesNotMatch(client, /localStorage\.setItem\([^\n]*apiKey/i);
   assert.doesNotMatch(client, /sessionStorage\.setItem\([^\n]*apiKey/i);
 });
