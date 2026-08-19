@@ -54,7 +54,7 @@ export default function StartScreen({ savedProject, onStart, onOpenApiSettings }
           <span><strong>GroundedCV</strong><small>可信简历实验室</small></span>
         </a>
         <button className="start-api-button" type="button" onClick={onOpenApiSettings}>
-          AI 设置 · 开放测试 / 自带 API
+          AI 设置 · 免费试用 / 自带 API
         </button>
       </header>
 

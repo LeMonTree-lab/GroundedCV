@@ -414,7 +414,7 @@ export default function GroundedCVApp() {
         <header className="topbar">
           <div className="breadcrumb">求职项目 <span>/</span> {project.job.title || "待填写岗位"} <span>/</span> {STEPS[activeStep][1]}</div>
           <div className="top-actions">
-            <button type="button" className={aiSettings.apiKey ? "api-ready" : "ghost-button"} onClick={() => setApiSettingsOpen(true)}>{aiSettings.apiKey ? "自带 Key 已连接" : "开放测试 / AI 设置"}</button>
+            <button type="button" className={aiSettings.apiKey ? "api-ready" : "ghost-button"} onClick={() => setApiSettingsOpen(true)}>{aiSettings.apiKey ? "自带 Key 已连接" : "免费试用 / AI 设置"}</button>
             <button type="button" className="ghost-button" onClick={() => setScreen("start")}>返回首页</button>
             <button type="button" className="ghost-button danger-text" onClick={resetProject}>清空项目</button>
             <button type="button" className="avatar" aria-label="当前候选人">{project.candidateName.slice(0, 1)}</button>
@@ -1287,13 +1287,13 @@ function AiSettingsDialog({
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
     <section className="experience-modal api-settings-modal" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
       <div className="modal-heading"><div><span className="card-category">DEEPSEEK · 本次会话</span><h2 id="ai-settings-title">AI 设置</h2></div><button type="button" onClick={onClose} aria-label="关闭">×</button></div>
-      <div className="api-privacy-note"><strong>当前为开放测试模式，也可以使用自己的 Key。</strong><p>不填写 Key 时，系统使用服务器端配置的匿名测试额度，暂不限制浏览器次数。填写自己的 DeepSeek Key 时仅保留在当前页面，直接请求 DeepSeek；网站不接收、不保存你的 Key。简历和岗位内容默认只保存在当前浏览器。</p></div>
+      <div className="api-privacy-note"><strong>公开试用 1 次，也可以使用自己的 Key。</strong><p>不填写 Key 时，系统使用服务器端的匿名公开试用额度（每个浏览器设备 1 次，本月总量有限）。填写自己的 DeepSeek Key 时仅保留在当前页面，直接请求 DeepSeek；网站不接收、不保存你的 Key。简历和岗位内容默认只保存在当前浏览器。</p></div>
       <div className="modal-grid">
         <label className="full-field">DeepSeek API Key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-..." /></label>
         <label className="full-field">模型<select value={model} onChange={(event) => setModel(event.target.value as AiSettings["model"])}><option value="deepseek-v4-flash">deepseek-v4-flash（默认，成本较低）</option><option value="deepseek-v4-pro">deepseek-v4-pro（更强的复杂改写）</option></select></label>
       </div>
       {error && <p className="modal-error" role="alert">{error}</p>}
-      <div className="modal-actions"><button type="button" className="ghost-button" onClick={() => { onSave({ apiKey: "", model }); onClose(); }}>使用开放测试</button><button type="button" className="primary-button" onClick={save}>保存到当前会话</button></div>
+      <div className="modal-actions"><button type="button" className="ghost-button" onClick={() => { onSave({ apiKey: "", model }); onClose(); }}>使用公开试用</button><button type="button" className="primary-button" onClick={save}>保存到当前会话</button></div>
     </section>
   </div>;
 }
