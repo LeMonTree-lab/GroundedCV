@@ -73,7 +73,7 @@ const RISKS = [
   { id: "R03", claim: "C04", severity: "low", type: "工具边界", phrase: "使用 Gemini、ChatGPT 完成概念验证", reason: "工具使用事实尚未再次确认，但未推断模型训练或生产级 Agent 能力。", suggestion: "使用多种生成式 AI 工具辅助概念验证与视觉设计。" },
 ];
 
-type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium"; type: string; phrase: string; reason: string; suggestion: string; sourceFacts: Fact[] };
+type LiveRisk = { id: string; claim: ResumeClaim; severity: "high" | "medium"; type: string; phrase: string; reason: string; suggestion: string; sourceFacts: Fact[]; recommendedAction: ClaimRevision["action"] };
 
 /**
  * A risk suggestion must be a real rewrite, not merely a copy of the current
@@ -112,22 +112,58 @@ function softenClaimText(text: string, sourceFacts: Fact[]) {
 function inspectResume(project: GroundedProject): LiveRisk[] {
   const claims = project.resume?.claims ?? [];
   const facts = getFactAssets(project).flatMap((record) => record.facts);
-  return claims.flatMap((claim, index) => {
+  const materialRisks = claims.flatMap((claim, index) => {
     const sources = facts.filter((fact) => claim.facts.includes(fact.id));
     const sourceText = sources.map((fact) => fact.text).join("；");
     // Only send a claim into the interview/revision loop when its wording adds
     // a material assertion beyond confirmed evidence. Ordinary skills, school
     // information, awards and source-complete facts pass automatically.
-    if (!sources.length) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "缺少事实来源", phrase: "未绑定事实", reason: "该 Claim 没有绑定任何确认事实，不能写入最终简历。", suggestion: "该表述没有可用事实来源，建议不写入最终简历。", sourceFacts: sources }];
+    if (!sources.length) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "缺少事实来源", phrase: "未绑定事实", reason: "该 Claim 没有绑定任何确认事实，不能写入最终简历。", suggestion: "该表述没有可用事实来源，建议不写入最终简历。", sourceFacts: sources, recommendedAction: "delete" as const }];
     const risky = claim.text.match(/主导|推动|提升|增长|降低|转化|上线|独立负责|显著|从0到1|从零到一/g)?.[0];
     const numbers = claim.text.match(/\d+(?:[+.%万千])?/g) ?? [];
     const newNumber = numbers.find((number) => !sourceText.includes(number));
-    if (newNumber) return [{ id: `R${index +1}`, claim, severity: "high" as const, type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources }];
-    if (risky && !sourceText.includes(risky)) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "责任或结果升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任、结果或项目状态强度。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources }];
+    if (newNumber) return [{ id: `R${index +1}`, claim, severity: "high" as const, type: "新增数字", phrase: newNumber, reason: `“${newNumber}”未出现在该 Claim 绑定的确认事实中。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
+    if (risky && !sourceText.includes(risky)) return [{ id: `R${index + 1}`, claim, severity: "high" as const, type: "责任或结果升级", phrase: risky, reason: `原始事实没有直接支持“${risky}”这一责任、结果或项目状态强度。`, suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
     const hasOutcomeWithoutBoundary = /完成|实现|达成/.test(claim.text) && !/完成|实现|达成/.test(sourceText) && /结果|项目|方案|功能|目标/.test(claim.text);
-    if (hasOutcomeWithoutBoundary) return [{ id: `R${index + 1}`, claim, severity: "medium" as const, type: "结果边界不清", phrase: claim.text.match(/完成|实现|达成/)?.[0] ?? "结果", reason: "该 Claim 的完成或结果语气超过了来源中可识别的个人参与边界。", suggestion: softenClaimText(claim.text, sources), sourceFacts: sources }];
+    if (hasOutcomeWithoutBoundary) return [{ id: `R${index + 1}`, claim, severity: "medium" as const, type: "结果边界不清", phrase: claim.text.match(/完成|实现|达成/)?.[0] ?? "结果", reason: "该 Claim 的完成或结果语气超过了来源中可识别的个人参与边界。", suggestion: softenClaimText(claim.text, sources), sourceFacts: sources, recommendedAction: "weaken" as const }];
     return [];
   });
+  if (materialRisks.length) return materialRisks;
+
+  // A claim review must remain useful even when the generated text is fully
+  // source-complete. Choose only high-signal work/project claims that a hiring
+  // manager could reasonably ask about; never surface profile, education,
+  // skills, award or link entries merely to fill the queue.
+  const candidates = claims
+    .map((claim, index) => {
+      const sources = facts.filter((fact) => claim.facts.includes(fact.id));
+      const text = claim.text;
+      const score =
+        (claim.section === "工作经历" || claim.section === "项目经历" || claim.section === "其他经历" ? 4 : 0)
+        + (/\d+(?:[+.%万千])?/.test(text) ? 3 : 0)
+        + (/调研|分析|设计|梳理|协调|开发|测试|验证|迭代|方案/.test(text) ? 3 : 0)
+        + (/AI|LLM|Agent|Codex|ChatGPT|Claude|Gemini/i.test(text) ? 3 : 0)
+        + (claim.jd.length ? 2 : 0);
+      return { claim, sources, index, score };
+    })
+    .filter((item) => item.sources.length && item.score >= 7)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 3);
+  const selectedCandidates = candidates.length ? candidates : claims
+    .map((claim, index) => ({ claim, index, sources: facts.filter((fact) => claim.facts.includes(fact.id)) }))
+    .filter((item) => item.sources.length && (item.claim.section === "工作经历" || item.claim.section === "项目经历" || item.claim.section === "其他经历"))
+    .slice(0, 1);
+  return selectedCandidates.map(({ claim, sources, index }, candidateIndex) => ({
+    id: `V${index + 1}`,
+    claim,
+    severity: "medium" as const,
+    type: "关键 Claim 可辩护性校验",
+    phrase: candidateIndex === 0 ? "优先准备" : "建议准备",
+    reason: "这条工作/项目 Claim 已有事实来源，并非错误；因涉及岗位相关行动、方法、规模或工具实践，建议确认你能在面试中说清个人作用、方法和证据。",
+    suggestion: softenClaimText(claim.text, sources),
+    sourceFacts: sources,
+    recommendedAction: "keep" as const,
+  }));
 }
 
 export default function GroundedCVApp() {
@@ -740,7 +776,7 @@ function RiskCenter({ risks, claimCount, onSelectRisk, onNext }: { risks: LiveRi
       </div>
       <div className="risk-summary">
         <div><span className="risk-number high">{counts.high}</span><p><strong>高风险</strong>建议追问后处理</p></div>
-        <div><span className="risk-number medium">{counts.medium}</span><p><strong>中风险</strong>需要补充或弱化</p></div>
+        <div><span className="risk-number medium">{counts.medium}</span><p><strong>待验证 Claim</strong>准备面试即可保留</p></div>
         <div><span className="risk-number low">{claimCount - risks.length}</span><p><strong>自动通过</strong>来源完整，无需追问</p></div>
         <div className="scan-note"><span>✓</span><p><strong>已检查 {claimCount} 条当前 Claim</strong>仅列出需要用户处理的风险项</p></div>
       </div>
@@ -758,7 +794,7 @@ function RiskCenter({ risks, claimCount, onSelectRisk, onNext }: { risks: LiveRi
           <h2>{risk.type}</h2>
           <div className="compare-box"><small>当前简历表述</small><p>{risk.claim.text}</p><mark>{risk.phrase}</mark></div>
           <h3>检查理由</h3><p className="detail-copy">{risk.reason}</p>
-          <h3>系统建议</h3><div className="suggestion-box">{risk.suggestion}</div>
+          <h3>若需更保守的表达</h3><div className="suggestion-box">{risk.suggestion}</div>
           <div className="decision-buttons"><button type="button" onClick={() => { onSelectRisk(risk.id); onNext(); }}>处理这条风险</button><button type="button" className="recommended" onClick={() => { onSelectRisk(risk.id); onNext(); }}>进入追问 →</button></div>
         </aside>
       </div>
@@ -804,7 +840,7 @@ function InterviewTest({ risks, risk: target, response, completedClaimIds, onSav
           <h2>{target.claim.id} · {target.type}</h2>
           <blockquote>“{target.claim.text}”</blockquote>
           <div className="risk-queue">
-            {risks.map((risk) => <button key={risk.id} type="button" onClick={() => onSelectRisk(risk.id)} className={risk.id === target.id ? "active" : ""}><span>{completed.has(risk.claim.id) ? "✓" : risk.severity === "high" ? "高" : risk.severity === "medium" ? "中" : "低"}</span><div><strong>{risk.claim.id} · {risk.type}</strong><small>{completed.has(risk.claim.id) ? "已完成三层追问" : "待追问"}</small></div></button>)}
+            {risks.map((risk) => <button key={risk.id} type="button" onClick={() => onSelectRisk(risk.id)} className={risk.id === target.id ? "active" : ""}><span>{completed.has(risk.claim.id) ? "✓" : risk.severity === "high" ? "高" : "验"}</span><div><strong>{risk.claim.id} · {risk.type}</strong><small>{completed.has(risk.claim.id) ? "已完成三层追问" : "待验证"}</small></div></button>)}
           </div>
           <div className="level-rail">
             {questions.map((item, index) => <button type="button" key={item.level} onClick={() => setLevel(index)} className={level === index ? "level active" : index < level || evaluated ? "level done" : "level"}><span>{index < level || evaluated ? "✓" : item.level}</span><div><strong>{item.title}</strong><small>{answers[index] ? "已回答" : "待回答"}</small></div></button>)}
@@ -841,7 +877,7 @@ function InterviewTest({ risks, risk: target, response, completedClaimIds, onSav
 }
 
 function ReverseEdit({ risks, onApplyAll, onNext }: { risks: LiveRisk[]; onApplyAll: (decisions: Array<{ risk: LiveRisk; action: ClaimRevision["action"] }>) => void; onNext: () => void }) {
-  const [choices, setChoices] = useState<Record<string, ClaimRevision["action"]>>(() => Object.fromEntries(risks.map((risk) => [risk.id, risk.type === "缺少事实来源" ? "delete" : "weaken"])));
+  const [choices, setChoices] = useState<Record<string, ClaimRevision["action"]>>(() => Object.fromEntries(risks.map((risk) => [risk.id, risk.recommendedAction])));
   if (!risks.length) return <div className="page"><div className="page-heading"><div><span className="eyebrow">STEP 06 · BATCH REVERSE REVISION</span><h1>没有需要回写的风险项</h1><p>所有 Claim 已在已确认事实边界内，可以直接查看最终简历。</p></div><button className="primary-button" type="button" onClick={onNext}>查看最终简历 <span>→</span></button></div></div>;
   const processed = risks.filter((risk) => choices[risk.id]).length;
   function applyAll() {
