@@ -490,7 +490,7 @@ export default function GroundedCVApp() {
         ) : activeStep === 5 ? (
           <ReverseEdit risks={liveRisks} onApplyAll={applyClaimRevisions} onNext={() => setActiveStep(6)} />
         ) : activeStep === 6 ? (
-          <FinalReport project={project} risks={liveRisks} />
+          <FinalReport project={project} risks={liveRisks} onUpdateClaims={(claims) => setProject((current) => current.resume ? { ...current, resume: { ...current.resume, claims } } : current)} />
         ) : (
           <StagePlaceholder activeStep={activeStep} onBack={() => setActiveStep(Math.max(0, activeStep - 1))} />
         )}
@@ -925,12 +925,13 @@ function ReverseEdit({ risks, onApplyAll, onNext }: { risks: LiveRisk[]; onApply
   );
 }
 
-function FinalReport({ project, risks }: { project: GroundedProject; risks: LiveRisk[] }) {
+function FinalReport({ project, risks, onUpdateClaims }: { project: GroundedProject; risks: LiveRisk[]; onUpdateClaims: (claims: ResumeClaim[]) => void }) {
   const [copied, setCopied] = useState(false);
   const revisions = project.resume?.revisions ?? [];
   const interviews = project.resume?.interviewResponses ?? [];
   const finalClaims = project.resume?.claims ?? [];
-  const sectionOrder: ResumeClaim["section"][] = ["工作经历", "项目经历", "教育与研究", "技能", "奖项/证书", "作品与链接", "其他经历"];
+  const [sectionOrder, setSectionOrder] = useState<ResumeClaim["section"][]>(["工作经历", "项目经历", "教育与研究", "技能", "奖项/证书", "作品与链接", "其他经历"]);
+  const factRecords = getFactAssets(project);
   const finalSections = sectionOrder.map((section) => ({
     section,
     entries: Array.from(new Map(finalClaims.filter((claim) => claim.section === section).map((claim) => [claim.experienceId, {
@@ -942,6 +943,31 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
   const traceability = project.resume?.claims.length
     ? Math.round((project.resume.claims.filter((claim) => claim.facts.length > 0).length / project.resume.claims.length) * 100)
     : 0;
+  const includedRecordIds = new Set(finalClaims.map((claim) => claim.experienceId));
+  const omittedRecords = factRecords.filter((record) => record.facts.some((fact) => fact.status === "confirmed") && !includedRecordIds.has(record.id));
+  const requirementCoverage = project.jobAnalysis?.length
+    ? project.jobAnalysis
+    : deriveRequirements(project.job, factRecords).map((item) => ({ ...item, factIds: item.facts === "暂无事实" ? [] : item.facts.split(" · ") }));
+  const unmetRequirements = requirementCoverage.filter((item) => item.level === "missing" || item.level === "partial");
+  function updateClaimText(claimId: string, text: string) {
+    onUpdateClaims(finalClaims.map((claim) => claim.id === claimId ? { ...claim, text, risk: "medium" as const } : claim));
+  }
+  function moveClaim(claimId: string, direction: -1 | 1) {
+    const index = finalClaims.findIndex((claim) => claim.id === claimId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= finalClaims.length || finalClaims[target].section !== finalClaims[index].section || finalClaims[target].experienceId !== finalClaims[index].experienceId) return;
+    const next = [...finalClaims];
+    [next[index], next[target]] = [next[target], next[index]];
+    onUpdateClaims(next);
+  }
+  function moveSection(section: ResumeClaim["section"], direction: -1 | 1) {
+    const index = sectionOrder.indexOf(section);
+    const target = index + direction;
+    if (target < 0 || target >= sectionOrder.length) return;
+    const next = [...sectionOrder];
+    [next[index], next[target]] = [next[target], next[index]];
+    setSectionOrder(next);
+  }
   function copySummary() {
     const content = [
       `${project.candidateName}｜${project.resume?.targetTitle ?? project.job.title}`,
@@ -957,11 +983,15 @@ function FinalReport({ project, risks }: { project: GroundedProject; risks: Live
   }
   return (
     <div className="page report-page">
-      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>这份简历，可以投递，也可以解释</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim；请在投递前处理仍存在的高风险表述。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制完整简历" : "复制完整简历 Markdown"}</button><button type="button" className="ghost-button" onClick={() => document.getElementById("final-application-resume")?.scrollIntoView({ behavior: "smooth" })}>查看完整投递版 ↓</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
+      <div className="report-hero"><span className="eyebrow">STEP 07 · READY TO APPLY</span><h1>可核对、可编辑的投递草稿</h1><p>{project.resume?.confirmedFactCount ?? 0} 条确认事实支撑 {project.resume?.claims.length ?? 0} 条当前 Claim。编辑后请重新进行 Claim 检查，确认每句话仍在事实边界内。</p><div><button type="button" className="primary-button" onClick={copySummary}>{copied ? "已复制完整简历" : "复制完整简历 Markdown"}</button><button type="button" className="ghost-button" onClick={() => document.getElementById("final-application-resume")?.scrollIntoView({ behavior: "smooth" })}>编辑投递草稿 ↓</button><button type="button" className="ghost-button" onClick={() => window.print()}>打印 / 导出 PDF</button></div></div>
       <div className="report-metrics"><div><strong>{project.resume?.claims.length ?? 0}</strong><span>当前 Claim</span></div><div><strong>{traceability}%</strong><span>事实可追溯率</span></div><div><strong>{risks.filter((risk) => risk.severity === "high").length}</strong><span>待处理高风险</span></div><div><strong>{interviews.length}</strong><span>已完成追问</span></div></div>
       <section className="final-resume-preview" id="final-application-resume">
-        <div className="final-resume-head"><div><span className="card-category">FINAL RESUME · 已应用本轮修改</span><h2>完整投递版简历</h2><p>以下是应用保留、弱化、删除决定后的全部内容；可直接复制或导出。</p><h2 className="candidate-name">{project.candidateName}</h2><p>{project.resume?.targetTitle ?? project.job.title}{project.job.company ? ` · ${project.job.company}` : ""}</p></div><span>{finalClaims.length} 条最终 Claim</span></div>
-        {finalSections.length ? finalSections.map(({ section, entries }) => <section className="final-resume-section" key={section}><h3>{section}</h3>{entries.map((entry) => <div className="final-resume-entry" key={`${section}-${entry.title}`}><div className="final-entry-head"><strong>{entry.title}</strong>{entry.meta && <small>{entry.meta}</small>}</div>{entry.claims.map((claim) => <p key={claim.id}><i />{claim.text}<code>{claim.id}</code></p>)}</div>)}</section>) : <p className="detail-copy">所有 Claim 均被删除。请返回“反向修改”保留至少一条可确认的经历表述。</p>}
+        <div className="final-resume-head"><div><span className="card-category">FINAL RESUME · DRAFT MODE</span><h2>完整投递草稿</h2><p>可编辑每条内容、调整模块与 bullet 顺序；手动修改会标为“需复检”，不会伪装成已验证表达。</p><h2 className="candidate-name">{project.candidateName}</h2><p>{project.resume?.targetTitle ?? project.job.title}{project.job.company ? ` · ${project.job.company}` : ""}</p></div><span>{finalClaims.length} 条最终 Claim</span></div>
+        {finalSections.length ? finalSections.map(({ section, entries }) => <section className="final-resume-section" key={section}><div className="final-section-head"><h3>{section}</h3><div><button type="button" className="text-button" onClick={() => moveSection(section, -1)}>↑ 上移</button><button type="button" className="text-button" onClick={() => moveSection(section, 1)}>↓ 下移</button></div></div>{entries.map((entry) => <div className="final-resume-entry" key={`${section}-${entry.title}`}><div className="final-entry-head"><strong>{entry.title}</strong>{entry.meta && <small>{entry.meta}</small>}</div>{entry.claims.map((claim) => <div className="editable-claim" key={claim.id}><i /><textarea aria-label={`编辑 ${claim.id}`} value={claim.text} onChange={(event) => updateClaimText(claim.id, event.target.value)} /><div><button type="button" className="text-button" onClick={() => moveClaim(claim.id, -1)}>↑</button><button type="button" className="text-button" onClick={() => moveClaim(claim.id, 1)}>↓</button><code>{claim.id}</code></div></div>)}</div>)}</section>) : <p className="detail-copy">所有 Claim 均被删除。请返回“反向修改”保留至少一条可确认的经历表述。</p>}
+      </section>
+      <section className="resume-completeness">
+        <div className="completeness-heading"><div><span className="card-category">COMPLETENESS CHECK</span><h2>投递草稿完整度</h2><p>确认哪些真实资产已写入，哪些还需要补充；没有证据的 JD 要求会被明确保留为空白。</p></div><span>{omittedRecords.length + unmetRequirements.length} 项待处理</span></div>
+        <div className="completeness-grid"><article><strong>已纳入的真实资产</strong><p>{includedRecordIds.size} 张资产卡 / {finalClaims.length} 条 Claim 已写入草稿。</p></article><article><strong>尚未写入的真实资产</strong>{omittedRecords.length ? <ul>{omittedRecords.map((record) => <li key={record.id}>{record.title}<small>{record.category} · {record.facts.filter((fact) => fact.status === "confirmed").length} 条确认事实</small></li>)}</ul> : <p>所有含确认事实的资产均已纳入。</p>}</article><article><strong>JD 仍缺少证据</strong>{unmetRequirements.length ? <ul>{unmetRequirements.slice(0, 6).map((item) => <li key={item.id}>{item.text}<small>{item.level === "partial" ? "有相关材料，待补充关键证据" : "当前没有可用事实"}</small></li>)}</ul> : <p>当前 JD 要求均有事实响应。</p>}</article></div>
       </section>
       <div className="report-grid">
         <section className="report-section"><span className="card-category">修改记录</span><h2>本次项目实际做了什么改变</h2>{revisions.length ? revisions.map((revision) => <div className="change-row" key={revision.id}><span>{revision.action === "weaken" ? "弱化" : revision.action === "delete" ? "未写入" : "保留"}</span><p>{revision.action === "weaken" && <><del>{revision.beforeText}</del><br /><ins>{revision.afterText}</ins></>}{revision.action === "delete" && <del>{revision.beforeText}</del>}{revision.action === "keep" && revision.beforeText}</p></div>) : <p className="detail-copy">尚未处理任何风险 Claim。返回“反向修改”后，选择保留、弱化或删除。</p>}</section>
